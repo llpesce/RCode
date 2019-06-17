@@ -1,0 +1,11 @@
+Started on Mon Jun 17 14:59:11 CDT 2019
+Readme file for the analysis of the files for the HCM DCM paper
+
+start by editing the variables that define where 
+  1- The input files are on your system, and
+  2- Scripts files are (this folder) and
+How the data should be first processed
+
+The file can then be read with
+RFolder='/Users/lpesce/Documents - MacBook Pro/Beth/Howtos/R/paper1'
+source(paste(RFolder,"Reading_Input_Files.txt",sep="/"))
