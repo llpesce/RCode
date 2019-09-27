@@ -1,0 +1,63 @@
+#Elements of Stats learning SVM class R
+require(dplyr)
+require(tidyr)
+library(e1071)
+
+set.seed(10111)
+
+
+nDim<-10
+nSample.tr<-50
+
+y <- rep(c(0,1),c(nSample.tr,nSample.tr))
+x <- matrix(rnorm(nDim*nSample.tr*2,0,1),nSample.tr*2,nDim)
+x[y==1,1:5] <- x[y==1,1:5] +1
+apply(x[y==1,],2,mean)
+apply(x[y==0,],2,mean)
+dat.tr <- data.frame(x,y=as.factor(y))
+
+svmfit=svm(y~.,data=dat.tr)
+
+nSample.tst<-5000
+y <- rep(c(0,1),c(nSample.tst,nSample.tst))
+x <- matrix(rnorm(nDim*nSample.tst*2,0,1),nSample.tst*2,nDim)
+x[y==1,1:5] <- x[y==1,1:5] +1
+apply(x[y==1,],2,mean)
+apply(x[y==0,],2,mean)
+dat.tst <- data.frame(x,y=as.factor(y))
+
+pred.tst <- predict(svmfit,dat.tst) %>% as.numeric
+tmp <- (2 - mean(pred.tst[1:nSample.tst]) + mean(pred.tst[(nSample.tst+1):(2*nSample.tst)]) - 1)/2
+
+#For GLM
+pred.tst <- predict(glm.fit,dat.tst,type="response")
+#Turn to 0 and 1
+pred.tst=ifelse(pred.tst>0.5,2,1)
+tmp <- (2 - mean(pred.tst[1:nSample.tst]) + mean(pred.tst[(nSample.tst+1):(2*nSample.tst)]) - 1)/2
+
+
+
+nSim<- 1000
+
+perf <- vector() #Initialize vector
+for (i in 1:nSim){
+  #Build training set
+  y <- rep(c(0,1),c(nSample.tr,nSample.tr))
+  x <- matrix(rnorm(nDim*nSample.tr*2,0,1),nSample.tr*2,nDim)
+  x[y==1,1:5] <- x[y==1,1:5] +1
+  dat.tr <- data.frame(x,y=as.factor(y))
+  #Fit SVM
+  #svmfit=svm(y~.,data=dat.tr)
+  #Predict SVM
+  #pred.tst <- predict(svmfit,dat.tst) %>% as.numeric
+  #Fit glm
+  glm.fit=glm(y~., data=dat.tr,family=binomial)
+  #Predict GLM
+  pred.tst <- predict(glm.fit,dat.tst,type="response")
+  #Turn to 0 and 1
+  pred.tst=ifelse(pred.tst>0.5,2,1)
+  #Average performance for class one and for class 2
+  perf[i] <- (2 - mean(pred.tst[1:nSample.tst]) + mean(pred.tst[(nSample.tst+1):    
+              (2*nSample.tst)]) - 1)/2
+}
+

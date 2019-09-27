@@ -2,15 +2,26 @@
 #Wipe all objects from R memory
 #rm(list=ls())
 
-library(dplyr)
-library(tidyr)
+library("dplyr")
+library("tidyr")
 library("ggplot2")
 library("readxl")
+library("forcats")
 
+## STARTS SECTION THAT NEEDS CHANGING BEFORE EXECUTION
 #Data to load True is the 
-AllGenes <- F
+AllGenes <- T
 TTN <- F
-TTN_PAN <- T
+TTN_PAN <- F       
+sSNV <- F
+
+#Location where the R scripts are
+#Rfolder='/Users/lpesce/Documents - MacBook Pro/Beth/Howtos/R/paper1'
+#Location of work folder where the dataframes are
+#setwd('/Users/lpesce/Documents - MacBook Pro/Beth/Papers/HCM_DCM')
+setwd('/home/lpe159/HCM_DCM/sSNV_Bootstrap') #For server
+
+#Depending upon the GTEx database being used the formatting can be different, see below
 
 
 # data to exclude 
@@ -25,10 +36,7 @@ Remove_CBL <- F
 FqMin <- 0.00
 FqMax <- 1.00
 
-#Location where the R scripts are
-Rfolder='/Users/lpesce/Documents - MacBook Pro/Beth/Howtos/R/paper1'
-#Location of work folder where the dataframes are
-setwd('/Users/lpesce/Documents - MacBook Pro/Beth/Papers/HCM_DCM')
+
 dir() #List files in the workdirectory
 
 #Time stamp
@@ -44,8 +52,13 @@ dateStr <- Sys.Date() %>% format(format="%B_%d_%Y")
 #MD5 (Cohort_Patient_Data_MASTERUPDATE01222018.xlsx) = f6ed4d594e5987cc661770fe323a0d26
 #File corrected on 1/22/2018 
 #MD5 (Cohort_Patient_Data_MASTERUPDATE01232018.xlsx) = 5e538345dd35a79a53a5295c0c4e7b56
-subjPheno <- read_excel("Cohort_Patient_Data_MASTERUPDATE01232018.xlsx")
-subjPheno$Id <- as.factor(subjPheno$ID)
+#File connected on August 26th 2019
+#MD5 (Cohort_Patient_Data_MASTERUPDATE090418.xlsx) = a1fab4ee06840421ae48b1f535cea0bc
+
+subjPheno <-read_excel("Cohort_Patient_Data_MASTERUPDATE090418.xlsx")
+subjPheno[! is.na(subjPheno$MegaSeqID),] -> subjPheno #Eliminate columns with gibberish if any
+names(subjPheno)[14] <-"Machine_Recode" # Fix name, there are multiple columns with the same name in the original file
+subjPheno$Id <- as.factor(subjPheno$ID) #match names to later loaded phenotype file
 subjPheno$ID <- NULL
 #Reorder fields as necessary for readability
 refCols <- c("Id")
@@ -56,6 +69,40 @@ is.numeric(subjPheno$EF)
 subjPheno$'age 1st present' <- as.numeric(subjPheno$'age 1st present')
 #Rename fields to remove names that might make R break
 names(subjPheno) <- names(subjPheno) %>% make.names
+#Fix Ethnicity gibbersih
+subjPheno$Race_Recode_Cluster2 <- as.factor(subjPheno$Race_Recode_Cluster2)
+subjPheno %>% group_by(Race.ethnicity,Race_Recode_Cluster2) %>% summarize(n())
+# A tibble: 13 x 3
+# Groups:   Race.ethnicity [13]
+#   Race.ethnicity               Race_Recode_Cluster2 `n()`
+#   <chr>                        <fct>                <int>
+# 1 AA                           1                        2
+# 2 African American             1                       21
+# 3 Caucasian                    0                       61
+# 4 CAUCASIAN                    0                       25
+# 5 Caucasian (French descent)   0                        1
+# 6 Caucasian/Hispanic           0                        1
+# 7 Hispanic                     0                        9
+# 8 HISPANIC                     0                        1
+# 9 Hispanic(more than one race) 0                        1
+#10 Indian                       0                        1
+#11 MIDDLE EASTERN               0                        1
+#12 NOT FOUND                    1                        1
+#13 Unknown                      0                        2
+subjPheno$Race.ethnicity <- subjPheno$Race.ethnicity %>% fct_collapse(AA = c("AA","African American","NOT FOUND"))
+subjPheno$Race.ethnicity <- subjPheno$Race.ethnicity %>% fct_collapse(EA = c("Caucasian","CAUCASIAN","Caucasian (French descent)"))
+subjPheno$Race.ethnicity <- subjPheno$Race.ethnicity %>% fct_collapse(OA = c("Indian","MIDDLE EASTERN","Unknown"))
+subjPheno$Race.ethnicity <- subjPheno$Race.ethnicity %>% fct_collapse(HA = c("Hispanic","HISPANIC","Caucasian/Hispanic","Hispanic(more than one race)"))
+subjPheno %>% group_by(Race.ethnicity,Race_Recode_Cluster2) %>% summarize(n())
+# A tibble: 4 x 3
+# Groups:   Race.ethnicity [4]
+#  Race.ethnicity Race_Recode_Cluster2 `n()`
+#  <fct>          <fct>                <int>
+#1 AA             1                       24
+#2 EA             0                       87
+#3 HA             0                       12
+#4 OA             0                        4
+
 
 ##Read Gene group data
 #Date sent by Megan: 10/13/2017
@@ -64,6 +111,8 @@ geneGroups <- read_excel("Pan_Card_LMM_GeneDx_Invitae_groups.xlsx", sheet=1, col
 names(geneGroups) <- c("Gene","Group")
 geneGroups$Gene <- as.factor(geneGroups$Gene)
 geneGroups$Group <- as.factor(geneGroups$Group)
+
+
 
 ##Read segment duplicaton nr file
 #MD5 (Genomes_MegaSeq6.0_KnownGene_totalSegmentDuplicates.dataframe_results) = #819ec847bf0025aaa2930e073adde358
@@ -84,9 +133,10 @@ segDupByGene$nSegDup <- as.numeric(segDupByGene$nSegDup)
 #MD5 (Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae_TTN.dataframe) = a51fd2a17e0d43a1c74592c71d7f3457
 #scp lpe159@mcnallylabwkstn01.fsm.northwestern.edu: /data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/HCM_DCM_October2017/Autosomes/...
 #MD5 (Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe) = f25bca2a8e5a31154ef0e998407feb11
-#ALL GENES
-#scp lpe159@mcnallylabwkstn01.fsm.northwestern.edu:/data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/H_DCM_November2017/#AllKnownGenes/Genomes_MegaSeq6.0_KnownGene_total.dataframe
+#ALL GENES both locally and server
 #MD5 (Genomes_MegaSeq6.0_KnownGene_total.dataframe) = be3f261a4705dd487b951b92c2cdac5d
+#sSNVs - Done on server for bootstrap only
+#6a0d828259831fb96c2f19b1f305ae81  Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.sSNV.dataframe
 
 
 if(AllGenes){
@@ -96,6 +146,8 @@ if(AllGenes){
   variantFile.dataframe <- "Genomes_MegaSeq6.0_TTN.dataframe" #TTN variants set
 }else if(TTN_PAN){
   variantFile.dataframe <- "Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae_TTN.dataframe" #TTN+ Pan Cardio variants set
+}else if(sSNV){ #Done on the server
+ variantFile.dataframe <- "Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.sSNV.dataframe"
 }else{
   variantFile.dataframe <- "Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe" #Pan Cardio gene set
 }
@@ -112,7 +164,7 @@ input.all$Chr=as.factor(input.all$Chr)
 input.all$Ref=as.character(input.all$Ref)
 input.all$Alt=as.character(input.all$Alt)
 #Ordered factors
-input.all$Eff = factor(input.all$Eff,levels=c("M","H"),ordered=TRUE) #Ordered!
+input.all$Eff = factor(input.all$Eff,levels=c("L","M","H"),ordered=TRUE) #Ordered! added low 9/23/2019 LLP, NU
 
 #Conversion of numbers, notice that some of them will produce NA because there is no number for them in the dataframe
 input.all$Loc=as.integer(input.all$Loc)
@@ -129,6 +181,10 @@ input.all$PP2=as.numeric(input.all$PP2)
 
 #Split GTEX into numerical columns NOTE that the number of GTEx columns changes with sets 
 input.all <- input.all %>% extract(GTEx,into=c("GTExLV","GTExAA"),"LV,(.+),AA,(.+)") 
+# after version 6p data is structured differently: median, max, min, standard deviation
+# and for some reason names have been changed by someone who can't think straight.
+#HAA,25.37,150.8,6.55,21.269006,HLV,12.89,61.43,1.911,8.469271
+#input.all <- input.all %>% extract(GTEx,into=c("GTExAA","GTExLV"),"HAA,([^,]+),.+HLV,([^,]+),.*") 
 
 #Create actual frequencies for the 900 genomes, HCM & DCM
 input.all <- input.all %>%
@@ -213,6 +269,8 @@ if(AllGenes){
  runTitle=paste("Genes::TTN",runTitle) 
 }else if (TTN_PAN){
  runTitle=paste("Genes::TTN+PanCardio",runTitle) 
+}else if(sSNV){ #Done on the server
+ runTitle=paste("Genes::sSNVs",runTitle) 
 }else{
  runTitle=paste("Genes::PanCardio",runTitle) 
 }

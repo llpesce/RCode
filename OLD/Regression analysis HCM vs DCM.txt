@@ -1,0 +1,368 @@
+###LM/GLM ANALYSIS HCM vs. DCM
+
+# Start by loading Load panCardio.all
+
+Id.bad <- c("5180","4014","5122","5200","5138") 
+setdiff(Id.bad,panCardio.all$Id)
+
+
+#Attach blocks of variants only by gnomAD_AF_E bucket
+A <- as.data.frame(table(panCardio.all %>% filter(gnomAD_AF_E <= .0025) %>% select(Id) ))
+names(A) <- c("Id", "V.Freq.0025")
+
+M <- as.data.frame(table(panCardio.all %>% filter(gnomAD_AF_E <= .01) %>% select(Id) ))
+names(M) <- c("Id", "V.Freq.01")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+
+#Merge other columns
+M <- as.data.frame(table(panCardio.all %>% filter(gnomAD_AF_E <= .1) %>% select(Id) ))
+names(M) <- c("Id", "V.Freq.1")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+M <- as.data.frame( table(panCardio.all %>% filter( gnomAD_AF_E <= .25 ) %>% select(Id) ))
+names(M) <- c("Id", "V.Freq.25")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+M <- as.data.frame( table(panCardio.all %>% filter( gnomAD_AF_E > .1 & gnomAD_AF_E <= .25 ) %>% select(Id) ))
+names(M) <- c("Id", "V.Freq.1_.25")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+M <- as.data.frame( table(panCardio.all %>% filter( gnomAD_AF_E > .25 & gnomAD_AF_E <= .5 ) %>% select(Id) ))
+names(M) <- c("Id", "V.Freq.25_.5")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+
+
+
+#Normalized variables 
+Y <- "LVIDd_BSA"
+#Y <- "IVSd_BSA"
+#Y <- "LVPWd_BSA"
+#Y <- 'EF'
+   
+
+
+# Prepare regression matrix for phenotype
+## Analysis, all known confounders included in the data matrix
+X <- merge( A,subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+names(X) <- names(X) %>% make.names
+#recode race as factor
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type of CM' <- as.factor(X$'type.of.CM')
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+
+#Make a folder for that variable
+LMDir=paste(Y,"RACE)",sep="")
+dir.create(LMDir)
+
+imax <- ncol(A)
+sink(paste(LMDir,"/",Y,"_lm.txt",sep=''))
+
+colSums(X[,2:imax],dims=1)
+
+for (i in 2:imax){
+    x <- names(X)[i]
+    print (paste('for interval',x)) 
+    fitM.DCM <- lm (X[[Y]] ~ Machine_Recode  , X, subset = X$'type.of.CM' =='DCM')
+    fitM.HCM <- lm (X[[Y]] ~ Machine_Recode  , X, subset = X$'type.of.CM' =='HCM')
+    print(summary(fitM.DCM))
+    print(summary(fitM.HCM))
+
+    fitR.DCM <- lm (X[[Y]] ~ Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='DCM')
+    fitR.HCM <- lm (X[[Y]] ~ Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='HCM')
+    print(summary(fitR.DCM))
+    print(summary(fitR.HCM))
+
+
+    fit.DCM <- lm (X[[Y]] ~ X[[x]] , X, subset = X$'type.of.CM' =='DCM')
+    pred.DCM <- data.frame(Y.pred = predict(fit.DCM, X),var=X[[x]])
+    fit.HCM <- lm (X[[Y]] ~ X[[x]] , X, subset = X$'type.of.CM' =='HCM')
+    pred.HCM <- data.frame(Y.pred = predict(fit.HCM, X),var=X[[x]])
+    print(summary(fit.DCM))
+    print(summary(fit.HCM))
+
+    # Colors for DCM and HCM x race, the repeated color is for the fit with no race
+    palette <- c( '#0000FF','#0000FF','#66CCFF', '#FF0000','#FF0000','#FF9900') 
+
+
+    ggplot(X,aes(x=X[[x]],y=X[[Y]],color=interaction(X$'type.of.CM',X$'Race_Recode_Cluster2')))+  
+    geom_point(size=6, show.legend=F) + 
+    labs(title = paste('Scatterplot of ',Y,'by type of CM'), x = x, y = Y) +
+    geom_line(color='blue',data = pred.DCM,size=2, linetype=6, aes(x=var, y=Y.pred)) +
+    geom_line(color='red',data = pred.HCM,size=2, linetype=6, aes(x=var, y=Y.pred)) +
+    geom_smooth(aes(x=X[[x]],y=X[[Y]],group=type.of.CM,colour=type.of.CM),method='lm',formula=y~x,size=0)+ 
+    scale_colour_manual(name="Legend",values=palette) 
+
+
+    ##Unused:
+    #-Smooth plot tht is default of ggplot lm adding
+    # geom_smooth(method='lm',formula=X[[Y]] ~ X[[x]])
+    #-To add race
+    #ggplot(X,aes(x=X[[x]],y=X[[Y]],color=X$'type.of.CM',shape=X$'Race_Recode_Cluster2'))+ 
+    #-Separated lines directly from the fit 
+    #geom_line(color='blue',data = pred.DCM, aes(x=var, y=Y.pred)) +
+    #geom_line(color='red',data = pred.HCM, aes(x=var, y=Y.pred)) +
+    outPng <- paste(LMDir,"/",Y,"_race_",x,'.png',sep='')
+    ggsave(outPng)
+}
+
+sink()
+
+
+
+##Checking adding race and machine
+#For testing forward selection, or one can just add variables and look at adjusted R^2
+library(leaps)
+X1 <- X %>% filter(X$'type of CM'=='DCM') %>% select(-1,-7)
+regfit.fwd = regsubsets( X1[[Y]] ~ ., data = X, nvmax = 8, method = "forward")
+
+#Test race/machine
+for (i in 2:6){
+x <- names(X)[4]
+print (paste('for interval',x)) 
+
+fit.machine <- lm (X[[Y]] ~ X[[x]] + Machine_Recode , X, subset = X$'type of CM' =='DCM')
+fit.race <- lm (X[[Y]] ~ X[[x]] + Race_Recode_Cluster2 , X, subset = X$'type of CM' =='DCM')
+print(summary(fit.machine))
+print(summary(fit.race))
+}
+
+
+
+
+##GLM analysis
+#Pick the A matrix from above, just attach to it other data
+X.GLM <- merge( A,subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2','Machine_Recode')],by="Id",suffixes="")
+#recode race as factor
+X.GLM$'Race_Recode_Cluster2' <- as.factor(X.GLM$'Race_Recode_Cluster2')
+X.GLM$Machine_Recode <- as.factor(X.GLM$Machine_Recode)
+#Fix names
+names(X.GLM) <- names(X.GLM) %>% make.names
+#Order them so that probability is probability of DCM
+X.GLM$type.of.CM <- factor(X.GLM$type.of.CM, levels=c("HCM","DCM"))
+
+GLMDir="GLM_FKTN"
+dir.create(GLMDir)
+
+sink(paste(GLMDir,"/","glm_fits.txt",sep=''))
+
+imax <- as.integer(ncol(A))
+colSums(X.GLM[,2:imax],dims=1)
+
+
+for (i in 2:imax){
+    x <- names(X.GLM)[i]
+    DCM <- X.GLM %>%  filter(type.of.CM == 'DCM') %>% select (Id, x,Race_Recode_Cluster2)
+    DCM <- cbind(DCM, c(1))
+    names(DCM) <- c("Id","NumVar","Race", "PofDCM")
+    #Create matrix with number of subjects for number of variants and use it to shift points
+    cnt <- table(DCM$NumVar)
+    for (j in names(cnt)){
+       shift=0.0
+       dx=0.01
+       for (Id in DCM[DCM$NumVar==j,]$Id){
+          DCM[DCM$Id == Id,]$PofDCM <- DCM[DCM$Id == Id,]$PofDCM+shift
+          shift <- shift+dx
+       }
+    }
+    #Points with the averages by race by phenotype
+    DCM.0 <- data.frame(mean=mean(DCM[DCM$Race == 0,]$NumVar),loc=.96)
+    DCM.1 <- data.frame(mean=mean(DCM[DCM$Race == 1,]$NumVar),loc=.96)
+
+    HCM <- X.GLM %>%  filter(type.of.CM == 'HCM') %>% select (Id,x,Race_Recode_Cluster2)
+    HCM <- cbind(HCM, c(0))
+    names(HCM) <- c("Id","NumVar","Race", "PofDCM")
+    cnt <- table(HCM$NumVar)
+    for (j in names(cnt)){
+       shift=0.0
+       dx=0.01
+       for (Id in HCM[HCM$NumVar==j,]$Id){
+          HCM[HCM$Id == Id,]$PofDCM <- HCM[HCM$Id == Id,]$PofDCM+shift
+          shift <- shift+dx
+       }
+    }
+    #Points with the averages by race by phenotype
+
+    HCM.0 <- data.frame(mean=mean(HCM[HCM$Race == 0,]$NumVar),loc=-.04)
+    HCM.1 <- data.frame(mean=mean(HCM[HCM$Race == 1,]$NumVar),loc=-.04)
+
+
+    #Fit GLM and create multilayered plot
+    print (paste('for interval',x)) 
+    model.GLM <- glm( type.of.CM ~ X.GLM[[x]],family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+    intercept <- as.numeric( coef( model.GLM )[1] )
+    beta <- as.numeric( coef( model.GLM )[2] )
+    rangex <- range(X.GLM[[x]])
+    range <- seq(max(rangex[1]-10,0),rangex[2],by=1)
+    logodds <- intercept + beta * range
+    prob <- exp(logodds) / (1+exp(logodds))
+    PLOT <- data.frame(range,prob)
+
+    #ggplot(PLOT, aes(range)) +                    # basic graphical object
+    #geom_line(aes(y=prob, colour="Fit")) +  # first layer
+    #labs(title = paste('GLM for Variants for',x),x = '# of Variants', y = 'Probability of DCM') + # Third
+    #geom_point(data=HCM,mapping = aes(x = NumVar, y = PofDCM, colour="HCM",shape=HCM$Race))+
+    #geom_point(data=DCM,mapping = aes(x = NumVar, y = PofDCM, colour="DCM",shape=DCM$Race))+
+    #geom_point(data=DCM.0,mapping = aes(x = mean, y = loc, colour="DCM", shape="0", size=2))+
+    #geom_point(data=DCM.1,mapping = aes(x = mean, y = loc, colour="DCM", shape="1", size=2))+
+    #geom_point(data=HCM.0,mapping = aes(x = mean, y = loc, colour="HCM", shape="0", size=2))+
+    #geom_point(data=HCM.1,mapping = aes(x = mean, y = loc, colour="HCM", shape="1", size=2))+
+    #scale_colour_manual(name="Legend",values=c(Fit="black",HCM="red",DCM="blue",shape=DCM$Race))
+
+    HCM$RaceCol <- c("HCM.0","HCM.1")[HCM$Race]
+    DCM$RaceCol <- c("DCM.0","DCM.1")[DCM$Race]
+
+    ggplot(PLOT, aes(range)) +                    # basic graphical object
+    geom_line(size=2,linetype=1,aes(y=prob, colour='Fit')) +  # first layer
+    labs(title = paste('GLM for Variants for',x),x = '# of Variants', y = 'Probability of DCM') + # Third
+    #geom_point(data=DCM.0,mapping = aes(x = mean, y = loc, colour="DCM.0", shape="0", size=2))+ #mean values
+    #geom_point(data=DCM.1,mapping = aes(x = mean, y = loc, colour="DCM.1", shape="0", size=2))+ #mean values
+    #geom_point(data=HCM.0,mapping = aes(x = mean, y = loc, colour="HCM.0", shape="0", size=2))+ #mean values
+    #geom_point(data=HCM.1,mapping = aes(x = mean, y = loc, colour="HCM.1", shape="0", size=2))+ #mean values
+    scale_colour_manual(name="Legend",values=c(Fit="black",HCM.0="#FF0000",HCM.1="#FF9900",DCM.0="#0000FF",DCM.1="#66CCFF",shape=DCM$Race))+   geom_point(data=HCM,mapping = aes(x = NumVar, y = PofDCM, colour=RaceCol))+
+    geom_point(data=DCM,mapping = aes(x = NumVar, y = PofDCM, colour=RaceCol)) 
+
+
+
+
+
+    outPng <- paste(GLMDir,"/", x,'.png',sep='')
+
+    ggsave(outPng)
+
+    #Run with/adding the confounding factors
+    print("First Order Models") 
+    model.GLM <- glm( type.of.CM ~  Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+    model.GLM <- glm( type.of.CM ~ X.GLM[[x]],family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+    model.GLM <- glm( type.of.CM ~  Machine_Recode ,family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+
+    print("Second Order Models from Machine, compare via ANOVA") 
+    model2.GLM <- glm( type.of.CM ~  Machine_Recode +  Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model2.GLM))
+    print(anova(model2.GLM,model.GLM, test='Chisq'))
+    model2.GLM <- glm( type.of.CM ~ Machine_Recode + X.GLM[[x]],family=binomial,data=X.GLM)
+    print(summary(model2.GLM))
+    print(anova(model2.GLM,model.GLM, test='Chisq'))
+    #model.GLM <- glm( type.of.CM ~ X.GLM[[x]] + Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    #print(summary(model.GLM))
+
+    print("Third Order Models from Machine, compare via ANOVA") 
+    model3.GLM <- glm( type.of.CM ~ Machine_Recode + X.GLM[[x]] + Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model3.GLM))
+    print(anova(model3.GLM,model2.GLM, test='Chisq'))
+    model3.GLM <- glm( type.of.CM ~ X.GLM[[x]]*Machine_Recode ,family=binomial,data=X.GLM)
+    print(summary(model3.GLM))
+    print(anova(model3.GLM,model2.GLM, test='Chisq'))
+
+    print("Fourth Order Models from Machine, compare via ANOVA") 
+    model4.GLM <- glm( type.of.CM ~ X.GLM[[x]]*Machine_Recode+Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model4.GLM))
+    print(anova(model4.GLM,model3.GLM, test='Chisq'))
+
+    #model.GLM <- glm( type.of.CM ~ X.GLM[[x]] + Race_Recode_Cluster2*X.GLM[[x]] ,family=binomial,data=X.GLM)
+    #print(summary(model.GLM))
+    #model.GLM <- glm( type.of.CM ~ X.GLM[[x]]*Machine_Recode*Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    #print(summary(model.GLM))
+
+
+
+
+}
+#Return output to console
+sink()
+
+#Filter by PP2 & GERP
+A <- as.data.frame(table(panCardio
+ filter(PP2 >= .9 | GERP == "INDEL" | as.numeric(GERP) >= 3.0 | Eff == 'H' ) %>% select(Id) ))
+names(A) <- c("Id", "V.PP2_9_GERP3_Eff_H")
+
+# NO FILTER
+M <- as.data.frame(table(panCardio.all  %>% select(Id) ))
+names(M) <- c("Id", "V.All")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+
+# gnomAD has a value
+M <- as.data.frame(table(panCardio.all %>% filter( ! is.na(gnomAD_AF_E) ) %>% select(Id) %>% select(Id) ))
+names(M) <- c("Id", "V.gnomAD")
+#Merge
+A <- merge(A,M,by="Id",suffixes="")
+
+
+
+
+
+
+
+
+##OLD STUFF
+
+X.GLM <- merge( A,subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2','Machine_Recode')],by="Id",suffixes="")
+#recode race as factor
+X.GLM$'Race_Recode_Cluster2' <- as.factor(X.GLM$'Race_Recode_Cluster2')
+X.GLM$Machine_Recode <- as.factor(X.GLM$Machine_Recode)
+#Fix names
+names(X.GLM) <- names(X.GLM) %>% make.names
+#Order them so that probability is probability of DCM
+X.GLM$type.of.CM <- factor(X.GLM$type.of.CM, levels=c("HCM","DCM"))
+
+
+
+tmp <- subjPheno
+names(tmp) <- names(tmp) %>% make.names
+tmp %>% group_by(Machine_Recode,Race_Recode_Cluster2,type.of.CM) %>% summarise( N = n())
+
+
+
+
+model.GLM <- glm( type.of.CM ~ M.Freq.001 + H.Freq,family=binomial,data=X.GLM)
+summary(model.GLM)
+
+model.GLM <- glm( type.of.CM ~ M.Freq.001 + M.Freq.25 + H.Freq,family=binomial,data=X.GLM)
+summary(model.GLM)
+
+model.GLM <- glm( type.of.CM ~ I(M.Freq.001 + M.Freq.25) + M.Freq.na + H.Freq,family=binomial,data=X.GLM)
+summary(model.GLM)
+
+
+model.GLM <- glm( type.of.CM ~ I(M.Freq.001 + M.Freq.25) + M.Freq.na + Race_Recode_Cluster2 + H.Freq,family=binomial,data=X.GLM)
+summary(model.GLM)
+
+model.GLM <- glm( type.of.CM ~ I(M.Freq.001 + M.Freq.25) + M.Freq.na + Race_Recode_Cluster2 + Machine_Recode + H.Freq,family=binomial,data=X.GLM)
+summary(model.GLM)
+
+
+with(X.GLM,tapply(M.Freq.001 + M.Freq.25,list(type.of.CM,H.Freq),mean))
+
+temp <- X.GLM %>% mutate(M.Freq = M.Freq.001 + M.Freq.25) %>% select (H.Freq, type.of.CM, M.Freq)
+
+for (h in unique(temp$H.Freq)){
+   x <- temp[temp$type.of.CM == 'HCM' & temp$H.Freq == h,]$M.Freq
+   y <- temp[temp$type.of.CM == 'DCM' & temp$H.Freq == h,]$M.Freq
+   print(h)
+   test <- wilcox.test(x,y)
+   print(h)
+   print(test)
+}
+
+
+ for (h in unique(temp$H.Freq)){
+    x <- temp[temp$type.of.CM == 'HCM' & temp$H.Freq == h,]$M.Freq
+    y <- temp[temp$type.of.CM == 'DCM' & temp$H.Freq == h,]$M.Freq
+    print(paste(h,length(x),length(y)))
+}

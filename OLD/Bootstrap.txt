@@ -1,0 +1,269 @@
+#Bootstrap to compare distributions of variants
+
+require(boot)
+require(data.table)
+
+#Create matrix panCardio with "Reading Input files" 
+#Filter the desired variables: NOTE: Not reccommended for final analysis, to keep everything consistent
+#boot.df <- panCardio %>%
+# filter ( nchar(panCardio$Ref) == 1 & nchar(panCardio$Alt) == 1)  #Filter out Indels 
+
+#Initialize the Variant by subject by gene dataframe
+genes <- panCardio$Gene %>% unique 
+Ids <- panCardio$Id %>% unique
+varByGene <- as_tibble(matrix(0,nrow= length(Ids), ncol=length(genes)))
+names(varByGene) <- genes
+varByGene <- cbind(Id =Ids, varByGene) %>% arrange(Id)
+
+
+alleleByGene <- function(in.df){
+   ret.df <- in.df %>% 
+             group_by(Id,Gene) %>%
+             summarize( AF = sum(as.numeric(AF))) %>%
+             ungroup %>% #otherwise it will remain grouped which will affect the following analyses
+             spread(Gene,AF,fill = 0.0)
+ 
+  geneByChr <- panCardio %>% select(Gene,Chr) %>% unique
+  sexBySubj <- subjPheno %>% select(Id,Sex)
+
+  n <- ncol(ret.df)
+
+  for (Id in ret.df$Id){
+     sex <- sexBySubj[sexBySubj$Id == Id,]$Sex
+     ret.df[ret.df$Id == Id,2:n] <- 2*ret.df[ret.df$Id == Id,2:n] #Assume all genes are autosome as initialization
+     if ( sex == 'M' ) {
+        for (gene in geneByChr[geneByChr$Chr=='chrX',]$Gene){
+          if ( gene %in% colnames(ret.df)){
+             ret.df[ret.df$Id == Id, gene ] <- .5*ret.df[ret.df$Id == Id, gene ]
+          }
+        }
+     }
+
+  }
+
+  return(ret.df)
+
+
+}
+
+addVarCounts <- function(to.df,from.df){
+  for (gene in names(from.df)[2:ncol(from.df)]){
+      for (Id in from.df$Id){
+          to.df[to.df$Id==Id,c(gene)] <- from.df[from.df$Id==Id,c(gene)] 
+      }
+   }
+ return(to.df)
+}
+
+
+#Sex chr
+HbG <- addVarCounts(varByGene,alleleByGene(panCardio %>% filter (Eff == 'H') %>% filter (Chr == 'chrX') ))
+MbG <- addVarCounts(varByGene,alleleByGene(panCardio %>% filter (Eff == 'M') %>% filter (Chr == 'chrX')))
+VbG <- addVarCounts(varByGene,alleleByGene(panCardio% >% filter (Chr == 'chrX')))
+
+
+
+HbG <- addVarCounts(varByGene,alleleByGene(panCardio %>% filter (Eff == 'H')))
+MbG <- addVarCounts(varByGene,alleleByGene(panCardio %>% filter (Eff == 'M')))
+VbG <- addVarCounts(varByGene,alleleByGene(panCardio))
+
+
+#Sanity checks, the first should be zero, because all entries are zero
+max(HbG %>% select(-Id) %>% rowSums)
+HbG.tmp %>% select(-Id) %>% rowSums %>% sort %>% unique
+HbG.tmp %>% select(-Id) %>% colSums
+
+
+
+V.df <- merge(subjPheno[,c("Id","type.of.CM")], VbG,by="Id")
+V.df <- merge(subjPheno[,c("Id","type.of.CM")], HbG,by="Id")
+V.df <- merge(subjPheno[,c("Id","type.of.CM")], MbG,by="Id")
+
+names(V.df) <- names(V.df) %>% make.names
+
+
+#Select out Id and Phenotype
+Sel <- names(V.df) != "Id" & names(V.df) != "type.of.CM"
+
+stat.fn=function(data, indices, counts){
+  if(missing(counts)){
+      myMean <- function(A) { mean(A)}
+  }else{
+      myMean <- function(A) { 
+         tmp=sum(A)/sum(counts[indices])
+         return(tmp) 
+      }
+  }
+  apply(data[indices,Sel],2,myMean)
+  #apply(data[indices,Sel],2,quantile,probs=c(.9))
+}
+
+V.df.DCM <- V.df[V.df$'type.of.CM' == 'DCM',]
+V.df.HCM <- V.df[V.df$'type.of.CM' == 'HCM',]
+#Create array with number of alleles by autosome or sex chromosome
+counts.HCM <- merge(V.df %>% filter(type.of.CM == 'HCM'), subjPheno[,c("Id","Sex")],by="Id") %>%
+select(Id,Sex) %>% mutate(autoCount=2,sexCount=ifelse(Sex=='M',1,2))
+counts.DCM <- merge(V.df %>% filter(type.of.CM == 'DCM'), subjPheno[,c("Id","Sex")],by="Id") %>%
+select(Id,Sex) %>% mutate(autoCount=2,sexCount=ifelse(Sex=='M',1,2))
+
+
+stat.fn(V.df.HCM,1:nrow(V.df.HCM),counts.HCM$autoCount)
+stat.fn(V.df.DCM,1:nrow(V.df.DCM),counts.DCM$autoCount)
+
+stat.fn(V.df,1:nrow(V.df))
+
+set.seed(1)
+stat.fn(V.df.HCM,sample(1:nrow(V.df.HCM),nrow(V.df.HCM),replace=TRUE))
+
+boot.out.HCM <- boot(data=V.df.HCM,statistic=stat.fn,R=5000,count=counts.HCM$autoCount)
+boot.out.DCM <- boot(data=V.df.DCM,statistic=stat.fn,R=5000,count=counts.DCM$autoCount)
+
+
+CN <- names(V.df)[Sel]
+int <- .025
+for (n in 1:(length(Sel)-2)){
+    HCM = quantile(boot.out.HCM$t[,n],c(int,1-int))
+    DCM = quantile(boot.out.DCM$t[,n],c(int,1-int))
+    if (HCM[[1]] >  DCM[[2]] | DCM[[1]] > HCM[[2]]){
+      #cat(paste(CN[n]," HCM: [",HCM[[1]],"-",HCM[[2]],"] DCM: [",DCM[[1]],"-",DCM[[2]],"]\n", sep=""))
+      cat(paste(CN[n]," HCM: [",sprintf("%6.4f",HCM[[1]]),"-",sprintf("%6.4f",HCM[[2]]),"] DCM: [",sprintf("%6.4f",DCM[[1]]),"-",sprintf("%6.4f",DCM[[2]]),"]\n", sep=""))
+    }
+}
+
+
+boot.out.HCM <- boot(data=V.df.HCM,statistic=stat.fn,R=5000,count=counts.HCM$sexCount)
+boot.out.DCM <- boot(data=V.df.DCM,statistic=stat.fn,R=5000,count=counts.DCM$sexCount)
+
+
+#ANALYSIS BY GROUP
+
+#all, High, Moderate variants
+tmp <- with(merge(panCardio %>% select(Id,Eff,phen, Gene),geneGroups, by="Gene"),table(Id,Group))
+tmp <- with(merge(panCardio %>% filter(Eff=='H') %>% select(Id,Eff,phen, Gene),geneGroups, by="Gene"),table(Id,Group))
+tmp <- with(merge(panCardio %>% filter(Eff=='M') %>% select(Id,Eff,phen, Gene),geneGroups, by="Gene"),table(Id,Group))
+
+
+V.df <- merge(subjPheno[,c("Id","type.of.CM")], tmp, by="Id") %>% spread(Group, Freq)
+
+
+Then repeate above 
+
+
+### OLD STUFF
+
+
+#ANALYSIS BY SUBJECT (at least one allele has variant)
+
+#Sum variants present in gene for H and M
+HbG <- panCardio %>% filter(Eff=="H") %>% select(Id,Gene) %>% table %>% as.data.frame.matrix
+MbG <- panCardio %>% filter(Eff=="M") %>% select(Id,Gene) %>% table %>% as.data.frame.matrix
+
+#HbG <- with(panCardio[Eff=="H", c("Id","Gene")], table(Id,Gene))
+#MbG <- with(panCardio[Eff=="M", c("Id","Gene")], table(Id,Gene))
+
+VbG <- MbG+HbG #Total is easier to do before dataframes are made
+
+HbG <- setDT(HbG, keep.rownames = TRUE)[]
+names <- names(HbG)
+names[1] <- "Id"
+names(HbG) <- names
+
+MbG <- setDT(MbG, keep.rownames = TRUE)[]
+names <- names(MbG)
+names[1] <- "Id"
+names(MbG) <- names
+
+VbG <- setDT(VbG, keep.rownames = TRUE)[]
+names <- names(VbG)
+names[1] <- "Id"
+names(VbG) <- names
+
+V.df <- merge(subjPheno[,c("Id","type of CM")], MbG,by="Id")
+names(V.df) <- names(V.df) %>% make.names
+
+#V.df <- merge(V.df, HbG, by="Id",suffixes = c(".A",".H"))
+#V.df <- merge(subjPheno[,c("Id","type of CM")], MbG,by="Id")
+#V.df <- merge(V.df, HbG, by="Id",suffixes = c(".M",".H"))
+
+#Select out Id and Phenotype
+Sel <- names(V.df) != "Id" & names(V.df) != "type.of.CM"
+
+stat.fn=function(data, index){
+  apply(data[index,Sel],2,mean)
+  #apply(data[index,Sel],2,quantile,probs=c(.9))
+}
+
+V.df.DCM <- V.df[V.df$'type.of.CM' == 'DCM',]
+V.df.HCM <- V.df[V.df$'type.of.CM' == 'HCM',]
+
+stat.fn(V.df.HCM,1:nrow(V.df.HCM))
+stat.fn(V.df.DCM,1:nrow(V.df.DCM))
+
+stat.fn(V.df,1:nrow(V.df))
+
+set.seed(1)
+stat.fn(V.df.HCM,sample(1:nrow(V.df.HCM),nrow(V.df.HCM),replace=TRUE))
+
+boot.out.HCM <- boot(V.df.HCM,stat.fn,R=5000)
+boot.out.DCM <- boot(V.df.DCM,stat.fn,R=5000)
+
+
+CN <- names(V.df)[Sel]
+int <- .025
+for (n in 1:(length(Sel)-2)){
+    HCM = quantile(boot.out.HCM$t[,n],c(int,1-int))
+    DCM = quantile(boot.out.DCM$t[,n],c(int,1-int))
+    if (HCM[[1]] >  DCM[[2]] | DCM[[1]] > HCM[[2]]){
+      #cat(paste(CN[n]," HCM: [",HCM[[1]],"-",HCM[[2]],"] DCM: [",DCM[[1]],"-",DCM[[2]],"]\n", sep=""))
+      cat(paste(CN[n]," HCM: [",sprintf("%6.4f",HCM[[1]]),"-",sprintf("%6.4f",HCM[[2]]),"] DCM: [",sprintf("%6.4f",DCM[[1]]),"-",sprintf("%6.4f",DCM[[2]]),"]\n", sep=""))
+    }
+}
+
+
+#GeneGroup analysis
+
+
+tmp <- with(merge(panCardio[,c("Id","Eff","phen", "Gene")],geneGroups, by="Gene"),table(Id,Group))
+countByGroup <- merge(subjPheno[,c("Id","type of CM")], tmp, by="Id") %>% spread(Group, Freq)
+
+### Do some PCA with it
+require(stats)
+require(lattice)
+require(car)
+
+# fix names so that the ~ doesn't lost it
+names(countByGroup) <- names(countByGroup) %>% make.names
+#Check if the variables are all sane: can't all have the same values or not be numeric
+summary(countByGroup)
+
+scatterplotMatrix( ~ Calcium.Handling +Cell.Adhesion + Desmosome + DGC + Membrane.Ion.Channel + Metabolic +Nuclear |type.of.CM , data= countByGroup[c(-1)], diagonal="boxplot", legend.plot = FALSE, reg.line = FALSE, smoother=FALSE,
+  	main="DCM vs HCM nr of variants count",col=c("blue","red"))
+
+
+scatterplotMatrix( ~ Other +RAS +Sarcolemma +Sarcomere + Sarcoplasmic.Reticulum+Signalling+Splicing +TF + Z.Disk |type.of.CM , data= countByGroup[c(-1)], diagonal="boxplot", legend.plot = FALSE, reg.line = FALSE, smoother=FALSE,
+  	main="DCM vs HCM nr of variants count",col=c("blue","red"))
+
+scatterplotMatrix( ~ Calcium.Handling +Cell.Adhesion + Desmosome + DGC + Membrane.Ion.Channel + Metabolic +Nuclear + Other +RAS +Sarcolemma +Sarcomere + Sarcoplasmic.Reticulum+Signalling+Splicing +TF + Z.Disk|type.of.CM , data= countByGroup[c(-1)], diagonal="boxplot", legend.plot = FALSE, reg.line = FALSE, smoother=FALSE,
+  	main="DCM vs HCM nr of variants count",col=c("blue","red"))
+
+
+splom(countByGroup[c(-1)], groups=Pheno)
+
+#Eliminate "bad" variables from model
+fit = prcomp(~ .-Id -Pheno-Thin.Filament , data = countByGroup, center=TRUE, scale=TRUE)
+
+
+write.xlsx(countByGroup, CountsByGroup, sheetName = "Counts", col.names = TRUE, row.names = TRUE, append = FALSE)
+
+cBG.HCM <- countByGroup %>% filter(countByGroup$'type of CM'=='HCM')
+cBG.DCM <- countByGroup %>% filter(countByGroup$'type of CM'=='DCM')
+
+Sel <- names(countByGroup) != "Id" & names(countByGroup) != "type of CM"
+
+
+boot.out.HCM=boot(cBG.HCM,mean.fn,R=5000)
+boot.out.DCM=boot(cBG.DCM,mean.fn,R=5000)
+
+
+CN <- names(cBG.DCM)[3:ncol(countByGroup)]
+int <- .025

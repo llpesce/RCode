@@ -1,0 +1,150 @@
+R plots of expression data from GTEx
+Author: lpesce
+Date: 7/9/2018
+
+Location of GTEx data download (mcnally lab server)
+GTExRoot=/data/annovar_bak/humandb/GTEx/v7
+knownGenes /data/Genomics_tools/Databases/Gene_lists/KnownGene_total
+Skeletal muscles list /data/Genomics_tools/Databases/Gene_lists/skeletal_muscle_panel.xlsx
+
+#Extraction of GTEx data by perl script: /data/annovar_bak/humandb/GTEx/scripts/CreateGTExData_muscle_hack.pl
+
+#install perl modules to compute basic statistics
+https://cpan.metacpan.org/authors/id/J/JE/JETTERO/Statistics-Basic-1.6611.tar.gz
+
+>perl -MCPAN -e shell 
+#type the installation instructions in the shell
+install Statistics::Basic::_TwoVectorBase
+
+Files used
+MD5 (GTEx_TxSel_db.txt) = 4a6033c5565f24396f3bbf524a806ad7
+MD5 (GTEx_TxSel_muscle_db.txt) = 8dc7289a418edb2f897b3484ef3123d7
+MD5 (skeletal_muscle_panel.xlsx) = bc7f6522d6e60cfa14e3afa55b2e1aff
+
+
+###R code
+require(dplyr)
+require(tidyr)
+library("ggplot2")
+library("readxl")
+library(ggrepel)
+
+
+setwd("/Users/lpesce/Documents - MacBook Pro/Beagle users/Megan/GTEX")
+dateStr <- Sys.Date() %>% format(format="%B_%d_%Y")
+
+GTExTPMByGene <- read.csv('GTEx_TxSel_muscle_db.txt',sep="\t",colClasses = "character", header=TRUE) #dataframe containing all the data
+
+GTExTPMByGene <- GTExTPMByGene %>% select (-zeros) 
+names(GTExTPMByGene) <- c("Gene" ,"ESNG", "min" ,"max" ,"median","std","zeros")  
+
+
+GTExTPMByGene$min <- as.numeric(GTExTPMByGene$min)
+GTExTPMByGene$max <- as.numeric(GTExTPMByGene$max)
+GTExTPMByGene$median <- as.numeric(GTExTPMByGene$median)
+GTExTPMByGene$std <- as.numeric(GTExTPMByGene$std)
+GTExTPMByGene$zeros <- as.numeric(GTExTPMByGene$zeros)
+
+
+muscleGenes.union <- read_excel("skeletal_muscle_panel.xlsx", sheet=2)
+nrow(muscleGenes.union)
+#[1] 475
+muscleGenes.i2 <- read_excel("skeletal_muscle_panel.xlsx", sheet=3)
+nrow(muscleGenes.i2)
+#[1] 139
+
+
+#GTExTPMByGene[GTExTPMByGene$min ==0,]$min <- .000001
+#GTExTPMByGene[GTExTPMByGene$avg == 0,]$avg <- .000001
+#GTExTPMByGene[GTExTPMByGene$max == 0,]$max <- .000001
+
+mmin <- min(GTExTPMByGene$zeros)
+mmax <- max(GTExTPMByGene$zeros)
+
+hist(GTExTPMByGene$zeros, seq(mmin, mmax, length.out=150), ylim = c(0,3000))
+
+
+sort(table(GTExTPMByGene$median),decreasing=TRUE)[1:3]
+#      0 0.11515  1.3805 
+# 31361       9       7 
+sort(table(GTExTPMByGene$min),decreasing=TRUE)[1:3]
+#    0 1.019 1.104 
+# 42000     8     7 
+sort(table(GTExTPMByGene$max),decreasing=TRUE)[1:3]
+     0  0.188 0.5446 
+  3303     17     17 
+
+# Add information about panel
+GTExTPMByGene <- GTExTPMByGene %>% mutate(inAnyPanel = Gene %in% muscleGenes.union$Gene) 
+GTExTPMByGene <- GTExTPMByGene %>% mutate(inTwoPanels = Gene %in% muscleGenes.i2$Gene) 
+
+#Cutoff for expression
+cutxlow <- -1.21 #SYT2 log (0.29965) = -1.2
+cutxhigh <- 9 
+varCut <- 9
+
+p <- ggplot(GTExTPMByGene) + 
+geom_point(data=subset(GTExTPMByGene, zeros > 10),aes(x=log(median),y=log(std) ) ,col='skyblue3', size=1,shape=4) +
+geom_point(data=subset(GTExTPMByGene, zeros <= 10),aes(x=log(median),y=log(std) ) ,col='olivedrab4',size=1, shape=3) +
+geom_point(data=subset(GTExTPMByGene, inAnyPanel == TRUE),aes(x=log(median),y=log(std)),col='sienna2')  +
+geom_point(data=subset(GTExTPMByGene, inTwoPanels == TRUE),aes(x=log(median),y=log(std)),col='red2')  +
+geom_point(data=subset(GTExTPMByGene, zeros <= 10 & grepl("^MT-", Gene)),aes(x=log(median),y=log(std) ) ,col='magenta4',size=1, shape=2) 
+
+
+p1 <- p + geom_text_repel(data=subset(GTExTPMByGene, inAnyPanel == TRUE & (std > varCut*median | log(median) <= cutxlow )),aes(x=log(median),y=log(std),label=as.character(Gene)), col='magenta4',fontface = 'bold') +
+ geom_text_repel(data=subset(GTExTPMByGene, inAnyPanel == TRUE & std < varCut*median & log(median) >= cutxhigh ),aes(x=log(median),y=log(std),label=as.character(Gene), col=inAnyPanel & inTwoPanels),fontface = 'bold') +
+geom_text_repel(data=subset(GTExTPMByGene, inAnyPanel == FALSE & log(median) >= 9 & !grepl("^MT-", Gene)),aes(x=log(median),y=log(std),label=as.character(Gene)), col='olivedrab4',fontface = 'bold') +
+geom_text_repel(data=subset(GTExTPMByGene, Gene=='SYT2' | Gene=='MUSK' | Gene=='CHRNA1' | Gene=='CHRNG'  ),aes(x=log(median),y=log(std),label=as.character(Gene)), col='black',fontface = 'bold', size=4) +
+geom_point(data=subset(GTExTPMByGene, Gene=='SYT2' | Gene=='MUSK' | Gene=='CHRNA1' | Gene=='CHRNG'  ),aes(x=log(median),y=log(std)), col='black', size=3) +
+scale_colour_manual(name="Legend",values=palette <- c("sienna2","red2")) +
+theme(legend.position="none")
+
+p1+geom_line(data=subset(GTExTPMByGene, Gene=='SYT2' | Gene=='MUSK' | Gene=='CHRNA1' | Gene=='CHRNG'  ),aes(x=log(median),y=log(std)))
+
+
+ GTExTPMByGene %>% filter (Gene=='SYT2' | Gene=='MUSK' | Gene=='CHRNA1') %>% select(Gene,median, std)  %>% arrange(median) %>% mutate(logm=log(median),logstd=log(std)) %>% select(-median,-std)
+    Gene       logm    logstd
+1   SYT2 -1.2051402 -1.223580
+2   MUSK  0.3100549  1.784561
+3 CHRNA1  3.8811513  4.981529
+
+GTExTPMByGene %>% filter (Gene=='SYT2' | Gene=='MUSK' | Gene=='CHRNA1') %>% select(Gene,median, std)  %>% arrange(median) %>% mutate(logm=log(median),logstd=log(std)) %>% select(-median,-std) -> pts
+
+m1 <- (pts[2,3]-pts[1,3])/(pts[2,2]-pts[1,2])
+m2 <- (pts[3,3]-pts[2,3])/(pts[3,2]-pts[2,2])
+x1 <- pts[1,2]
+x2 <- pts[2,2]
+y1 <- pts[1,3]
+y2 <- pts[2,3]
+
+# Won't work because filer and functions don't go together, will find a fix some day
+below <- function(xin,yin){
+   x <- log(xin);
+   y <- log(yin);
+   if( x <= x1) {return (FALSE)}
+   if( x <= x2){ 
+      return(   y-y1 <= m1*(x-x1) )
+  }else{
+      return(   y-y2 <= m2*(x-x2) )
+  } 
+}
+
+#first, eliminate what is below 
+GTExTPMByGene %>% filter (log(median) >= x1) -> tmp
+# nrow16360
+tmp %>% filter (log(median) <= x2) -> tmp
+# norw 4589
+tmp %>% filter (log(std)-y1 <= m1*(log(median)-x1)) -> tmp
+#nrow 3436
+tmp -> skeletalGenes
+> GTExTPMByGene %>% filter (log(median) > x2) -> tmp
+> nrow(tmp)
+[1] 11771
+> tmp %>% filter (log(std)-y2 <= m2*(log(median)-x2)) -> tmp
+> nrow(tmp)
+[1] 11611
+skeletalGenes <- rbind(skeletalGenes,tmp)
+
+write.csv(skeletalGenes, file = "skeletalGenes.tsv",sep='\t')
+
+

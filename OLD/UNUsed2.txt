@@ -1,0 +1,393 @@
+ANALYSIS of HCM/DCM stuff
+
+Phenotype data:
+MD5 Cohort Patient Data MASTERmrp_machine_cluster.xlsx = 50ccaa5c9ca1473a1705f3e43f460f1c
+
+
+scp lpe159@mcnallylabwkstn01.fsm.northwestern.edu:/data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/HCM_DCM_July312017/PanCardio/Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe .
+MD5 Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe = 680fd446a594d72f4a8f0ec5df48a3e1
+
+
+
+scp lpe159@mcnallylabwkstn01.fsm.northwestern.edu:/data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/HCM_DCM_August2017/Autosomes//Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe .
+4d24b5970545f8890cf0021072c72bb5  Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe
+
+
+
+
+
+### LOAD THE FILES
+setwd("/Users/lpesce//Documents - MacBook Pro/Beagle users/Megan/HCM_DCM")
+dir() #List files in the workdirectory
+#Select a tab separated variants file
+panCardio.file <- "Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe" #Pan Cardio gene set
+panCardio.all <- read.csv(panCardio.file, sep="\t",stringsAsFactors=FALSE) #dataframe containing all the data
+
+allGenes.file <- "Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe" #All Genes 
+allGenes.all <- read.csv(allGenes.file, sep="\t",stringsAsFactors=FALSE) #dataframe containing all the data
+
+panCardio.all <- allGenes.all
+
+#To see what's in the data
+str(panCardio.all)
+##convert to what seems to be best classes for data entries
+#factors
+panCardio.all$Id=as.factor(panCardio.all$Id)
+panCardio.all$Eff = factor(panCardio.all$Eff,levels=c("M","H"),ordered=TRUE) #Ordered!
+panCardio.all$phen=as.factor(panCardio.all$phen)
+panCardio.all$Gene=as.factor(panCardio.all$Gene)
+panCardio.all$Chr=as.factor(panCardio.all$Chr)
+panCardio.all$Ref=as.factor(panCardio.all$Ref)
+panCardio.all$Alt=as.factor(panCardio.all$Alt)
+#Conversion of numbers, notice that some of them will prouce NA because there is no number for them in the dataframe
+panCardio.all$gnomAD_AF_G=as.numeric(panCardio.all$gnomAD_AF_G)
+panCardio.all$gnomAD_COV_G=as.numeric(panCardio.all$gnomAD_COV_G)
+panCardio.all$GERP=as.numeric(panCardio.all$GERP)
+panCardio.all$PP2=as.numeric(panCardio.all$PP2)
+panCardio.all$ExAC=as.numeric(panCardio.all$ExAC)
+panCardio.all$AF=as.numeric(panCardio.all$AF)
+
+
+#Split GTEX to create two numerical columns
+library(data.table)
+#Split GTEx in LV and AA, then pick the numbers and put them at the end of the dataframe
+setDT(panCardio.all)[, c("GTExLV","GTExAA") := tstrsplit(GTEx, ",")[c(2,4)]]
+panCardio.all$GTExAA=as.numeric(panCardio.all$GTExAA)
+panCardio.all$GTExLV=as.numeric(panCardio.all$GTExLV)
+panCardio.all$GTEx <- NULL #Eliminate GTEx original valuels()
+
+#Check the number of hits per gene and sort by frequency
+x <- as.data.frame(table(panCardio.all$Gene))
+x[order(x$Freq, decreasing = TRUE), ]
+
+#Check variants by patient
+model <- glm(phen ~Count+Race +Machine,family=binomial(link='logit'),data=DAT)
+summary(model)x <- as.data.frame(table(panCardio.all$Id))
+write.table(x[order(x$Freq, decreasing = TRUE),], row.names=FALSE, quote=FALSE)
+
+#Check variants by chromosome
+x <- as.data.frame(table(panCardio.all$Chr))
+write.table(x[order(x$Freq, decreasing = TRUE), ], row.names=FALSE, quote=FALSE)
+
+panCardio <- panCardio.all[ is.na(panCardio.all$PP2) & ! is.na(panCardio.all$GERP) , ]$GERP
+
+#Check the general statistics of the ExAC values 
+summary(panCardio.all$ExAC)
+
+breaks <- seq(0, 1.0, by=0.01)
+exac <- panCardio.all$ExAC
+
+exac <- exac[!is.na(exac)] #Eliminate NA
+exac.cut = cut(exac, breaks, right=FALSE)
+exac.freq = table(exac.cut)
+cumfreq = c(0, cumsum(exac.freq)) #Need zero or it won't plot
+plot(breaks, cumfreq0, main="Distribution of ExAC frequencies", xlab="Frequency in ExAC", ylab="Cumulative number of variants") 
+lines(breaks, cumfreq0)    
+
+#Create a dataframe with both the variant ExAC and phenotype data
+exac.all <- merge( panCardio.all[Eff=="M",][,c("Id","ExAC")] ,subjPheno[,c("Id","type of CM")],by="Id",suffixes="")
+exac.all <- exac.all[! is.na(exac.all$ExAC),]
+exac <- exac.all[ exac.all$'type of CM' == 'HCM',]$ExAC
+
+#Select the variants with both PP2 and GERP
+#exac.all <- merge( panCardio.all[Eff=="M",][,c("Id","ExAC")] ,subjPheno[,c("Id","type of CM")],by="Id",suffixes="")
+
+panCardio <- panCardio.all[ ! is.na(panCardio.all$PP2) & ! is.na(panCardio.all$GERP) & ! is.na(panCardio.all$ExAC), ]
+panCardio <- merge( panCardio,subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2')],by="Id",suffixes="")
+
+panCardio <- panCardio[panCardio$'type of CM' == 'HCM',]
+pp2  <-  panCardio$PP2
+gerp <-  panCardio$GERP
+ExAC <-  panCardio$ExAC <= 0.01
+PP2 <- data.frame(pp2,gerp,ExAC)
+PP2$ExAC <- as.factor(PP2$ExAC)
+
+
+PP2palette <- c( 'black', 'red') # Colors for DCM and HCM
+ggplot(PP2,aes(x=pp2,y=gerp,color=PP2$ExAC))+geom_point(size=2)+ scale_colour_manual(values=PP2palette)
+
+#Very Rare
+panCardio <- panCardio.all[ ! is.na(panCardio.all$PP2) & ! is.na(panCardio.all$GERP) &  panCardio.all$ExAC < 0.01, ]
+panCardio <- merge( panCardio,subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2')],by="Id",suffixes="")
+
+pp2  <-  panCardio$PP2
+gerp <-  panCardio$GERP
+ExAC <-  panCardio$ExAC <= 0.001
+PP2 <- data.frame(pp2,gerp,ExAC,CM=panCardio$'type of CM')
+PP2$ExAC <- as.factor(PP2$ExAC)
+
+ggplot(PP2,aes(x=pp2,y=gerp,shape=PP2$ExAC,color=PP2$CM))+geom_point(size=2)+ scale_colour_manual(values=PP2palette)+coord_cartesian(xlim = c(.9, 1),ylim = c(2.5,6.2)) 
+
+
+
+
+##Select subset depending upon ExAC values (can be any other values
+ExAC_cut <- 0.0002
+#panCardio <- panCardio.all
+
+panCardio <- panCardio.all[panCardio.all$ExAC <= ExAC_cut,]
+
+
+##Read phenotype Data
+library("readxl")
+subjPheno <- read_excel("Cohort Patient Data MASTERmrp_machine_cluster.xlsx")
+subjPheno$Id <- as.factor(subjPheno$ID)
+subjPheno$ID <- NULL
+#Reorder fields as necessary for readability
+refCols <- c("Id")
+subjPheno <- subjPheno[, c(refCols, setdiff(names(subjPheno), refCols))]
+str(subjPheno)
+#Check some fields for sanity and fix if necessary
+is.numeric(subjPheno$EF)
+subjPheno$'age 1st present' <- as.numeric(subjPheno$'age 1st present')
+
+
+###Create dataframe with subject fingerprints
+
+#Create a dataframe where each subject has only one entry, with values
+# Find the IDs, sort to match the way the dataframes will be built
+ID <- sort(unique(panCardio$Id))
+#Count instances of H & H
+H <- as.data.frame(table(panCardio[Eff=="H"]$Id))
+names(H) =c("Id", "H.Freq")
+M <- as.data.frame(table(panCardio[Eff=="M"]$Id))
+names(M) =c("Id", "M.Freq")
+#Merge
+A <- merge(H,M,by="Id",suffixes="")
+
+#Median value of PP2, median is useless because always zero)
+MP <- with(panCardio,tapply( PP2, Id,mean,na.rm=TRUE))
+MP <- data.frame(row.names=NULL,key=names(MP), value=MP)
+names(MP) =c("Id", "PP2.Mean")
+#Merge new values
+A <- merge(A,MP,by="Id",suffixes="")
+
+#Add quantiles for PP2
+quant <- c(.25,.75,.9)
+
+QP <- with(panCardio,tapply( PP2, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QP <- array(as.numeric(unlist(QP)), dim=c(length(quant),length(ID)))
+QP <- t(QP)
+ID.df=data.frame(ID); names(ID.df) <- c("Id")
+QP <- cbind(ID.df,QP)
+names(QP) <- c("Id",paste("PP2",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QP,by="Id",suffixes="")
+
+MQ <- with(panCardio,tapply( GERP, Id,mean,na.rm=TRUE))
+MQ <- data.frame(row.names=NULL,key=names(MQ), value=MQ)
+names(MQ) =c("Id", "GERP.Mean")
+#Merge new values
+A <- merge(A,MQ,by="Id",suffixes="")
+
+
+#Add quantiles for GERP.
+QG <- with(panCardio,tapply( GERP, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QG <- array(as.numeric(unlist(QG)), dim=c(length(quant),length(ID)))
+QG <- t(QG)
+ID.df=data.frame(ID); names(ID.df) <- c("Id")
+QG <- cbind(ID.df,QG)
+names(QG) <- c("Id",paste("GERP",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QG,by="Id",suffixes="")
+
+
+#Add quantiles for ExAC
+quant <- c(.1,.25,.5,.75)
+QE <- with(panCardio,tapply( ExAC, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QE <- array(as.numeric(unlist(QE)), dim=c(length(quant),length(ID)))
+QE <- t(QE)
+ID.df=data.frame(ID); names(ID.df) <- c("Id")
+QE <- cbind(ID.df,QE)
+names(QE) <- c("Id",paste("ExAC",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QE,by="Id",suffixes="")
+
+#Eliminate useless columns (e.g., ones where all values are identical like some first quantiles)
+A$PP2.0.25 <- NULL
+
+###regress simple things against each other.
+
+##separated by HCM and DCM to see if they are predicted within groups
+library(ggplot2)
+#Variables of interest
+Y <- 'largest LVIDd' 
+Y <- 'largest LVIDs'
+Y <- 'EF'
+Y <- 'age 1st present' 
+Y <- 'Largest LVPWd(cm)'
+Y <- 'Largest ivsd value(cm)'
+
+#Normalized variables 
+Y <- "LVIDd_BSA"
+Y <- "IVSd_BSA"
+Y <- "LVPWd_BSA"
+
+## Analysis including race
+X <- merge( A[,c("Id","H.Freq","M.Freq")],subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+#recode race as factor
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type of CM' <- as.factor(X$'type of CM')
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+#How to eliminate patients for LVIDd
+X <- X[! X$Id=="5168",] # child
+X <- X[! X$Id=="4014",] # child
+X <- X[! X$Id=="5122",] # child
+X <- X[! X$Id=="5238",] # child
+
+# X <- X[! X$Id=="5138",] # Not really sick
+# X <- X[! X$Id=="4016",] #
+
+
+palette <- c( 'blue', 'red') # Colors for DCM and HCM
+ggplot(X,aes(x=M.Freq,y=X[[Y]],color=X$'type of CM',shape=X$'Race_Recode_Cluster2'))+geom_point(size=5)+ labs(title = paste('Scatterplot for ExAC <= ', ExAC_cut, sep = ""), x = '# of M', y = Y)  + geom_smooth(method='lm',formula=y~x) + scale_colour_manual(values=palette)
+
+ggplot(X,aes(x=M.Freq+H.Freq,y=X[[Y]],color=X$'type of CM',shape=X$'Race_Recode_Cluster2'))+geom_point(size=5)+ labs(title =  paste('Scatterplot for ExAC <= ', ExAC_cut,sep=""), x = '# of M+H', y = Y)  + geom_smooth(method='lm',formula=y~x) + scale_colour_manual(values=palette)
+
+
+fit.DCM <- lm (X[[Y]] ~ X$M.Freq*Race_Recode_Cluster2 , X, subset = X$'type of CM' =='DCM')
+fit.HCM <- lm (X[[Y]] ~ X$M.Freq*Race_Recode_Cluster2 , X, subset = X$'type of CM' =='HCM')
+summary(fit.DCM)
+summary(fit.HCM)
+
+#Find points and their influence. 
+library(car)
+
+fit.DCM <- lm (X[[Y]] ~ X$M.Freq , X, subset = X$'type of CM' =='DCM')
+
+
+influence(fit.DCM)
+
+##GLM
+
+model <- glm( X$'type of CM' ~ M.Freq + Race_Recode_Cluster2 + Machine_Recode,family=binomial(link='logit'),data=X)
+summary(model)
+
+
+
+
+##
+#To plot only one condition
+X <- X[X$'type of CM' == 'HCM',]
+ggplot(X ,aes(x=M.Freq,y=X[[Y]]))+geom_point(size=5) + geom_smooth(method='lm',formula=y~x)
+
+### Pairs analysis (correlation among variables, two by two
+Y='EF'
+X <- merge( A,subjPheno[,c("Id",Y,"type of CM")],by="Id",suffixes="")
+X$'type of CM' <- as.factor(X$'type of CM')
+pairs(X)
+
+
+
+#PCA 
+fit = prcomp(~ .- Id, data = A, scale=TRUE)
+
+
+#Bayesian method  To build a variant by Id matrix
+
+
+TO DO
+
+fit.DCM.0 <- lm (X[[Y]] ~ 1 , X, subset = X$'type of CM' =='DCM')
+fit.DCM.1 <- lm (X[[Y]] ~  X$H.Freq , X, subset = X$'type of CM' =='DCM')
+fit.DCM.2 <- lm (X[[Y]] ~  X$M.Freq + X$H.Freq , X, subset = X$'type of CM' =='DCM')
+fit.DCM.3 <- lm (X[[Y]] ~  X$M.Freq*X$H.Freq , X, subset = X$'type of CM' =='DCM')
+
+
+
+
+
+
+
+X <- X[! X$Id=="5197",] # Hispanic
+
+
+X <- X[! X$Id=="5167",] # Muscular dystrophy
+
+
+#LVPWd
+X <- X[! X$Id=="5138",] #
+X <- X[! X$Id=="5197",] #
+
+
+
+
+
+
+
+X <- merge( A[,c("Id","H.Freq","M.Freq")],subjPheno[,c("Id","type of CM",Y)],by="Id",suffixes="")
+str(X) #Check for sanity
+X[[Y]] <- as.numeric(X[[Y]]) #Y is a quantity, not a string or factor, will be a warning for coercion and that should be OK
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+#ggplot(X,aes(x=M.Freq,y=X[[Y]],color=X$'type of CM'))+geom_point(size=5)+ labs(title = "Scatterplot", x = '# of M', y = Y) 
+
+fit.DCM <- lm (X[[Y]] ~ X$M.Freq , X, subset = X$'type of CM' =='DCM')
+fit.HCM <- lm (X[[Y]] ~ X$M.Freq , X, subset = X$'type of CM' =='HCM')
+summary(fit.DCM)
+summary(fit.HCM)
+
+ggplot(X,aes(x=I(H.Freq),y=X[[Y]],color=X$'type of CM',shape=X$'Race_Recode_Cluster2'))+geom_point(size=5)+ labs(title = "Scatterplot", x = '# of M', y = Y)  + geom_smooth(method='lm',formula=y~x) + scale_colour_manual(values=palette)
+fit.HCM <- lm (X[[Y]] ~ I(X$M.Freq+X$H.Freq) , X, subset = X$'type of CM' =='HCM')
+fit.DCM <- lm (X[[Y]] ~ I(X$M.Freq+X$H.Freq) , X, subset = X$'type of CM' =='DCM')
+
+
+
+fit.HCM <- lm (X[[Y]] ~ I(X$M.Freq+X$H.Freq) , X, subset = X$'type of CM' =='HCM')
+
+
+fit.HCM.0 <- lm (X[[Y]] ~ 1 , X, subset = X$'type of CM' =='HCM')
+fit.HCM.1 <- lm (X[[Y]] ~  X$H.Freq , X, subset = X$'type of CM' =='HCM')
+fit.HCM.2 <- lm (X[[Y]] ~  X$M.Freq + X$H.Freq , X, subset = X$'type of CM' =='HCM')
+fit.HCM.3 <- lm (X[[Y]] ~  X$M.Freq*X$H.Freq , X, subset = X$'type of CM' =='HCM')
+
+
+fit.DCM.0 <- lm (X[[Y]] ~ 1 , X, subset = X$'type of CM' =='DCM')
+fit.DCM.1 <- lm (X[[Y]] ~  X$H.Freq , X, subset = X$'type of CM' =='DCM')
+fit.DCM.2 <- lm (X[[Y]] ~  X$M.Freq + X$H.Freq , X, subset = X$'type of CM' =='DCM')
+fit.DCM.3 <- lm (X[[Y]] ~  X$M.Freq*X$H.Freq , X, subset = X$'type of CM' =='DCM')
+
+
+fit.DCM.1 <- lm (X[[Y]] ~  X$H.Freq , X, subset = X$'type of CM' =='DCM')
+
+hist(X[X'type of CM' == "DCM",]
+
+As a function of number of variants.
+
+Seeing if the number of variants can affect the severity of disease for HCM, while for DCM it does.
+
+Other question is: is there are type of variant that tends to be in HCM or DCM? 
+
+
+#X[[Y]] <- as.factor(X[[Y]])
+
+X[[Y]] <- as.numeric(X[[Y]])
+X$'type of CM' <- as.factor(X$'type of CM')
+
+
+
+
+
+ks.test(X[X$'type of CM' == "DCM" and,]$M.Freq, X[X$'type of CM' == "HCM",]$M.Freq)
+
+race <- 1
+Z.HCM <- X[X$'type of CM' == "HCM" & X$Race_Recode_Cluster2 == race ,]$M.Freq
+plot(ecdf(Z.HCM))
+Z.DCM <- X[X$'type of CM' == "DCM" & X$Race_Recode_Cluster2 == race ,]$M.Freq
+plot(ecdf(Z.DCM))
+ks.test(Z.HCM,Z.DCM)
+wilcox.test(Z.HCM,Z.DCM)
+bartlett.test(Z.HCM,Z.DCM)
+
+
+mean(Z.HCM)
+mean(Z.DCM)
+
+outPng <- 'LVIDd_BSA_HM_00_5.png'
+
+outPng <- 'EF_0_5.png' 
+
+outPng <- 'IVSd_BSA_00_5.png'
+ggsave(outPng)

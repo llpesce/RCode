@@ -1,0 +1,138 @@
+#Run PCA on genetic data
+#library(flashpcaR)
+
+panCardio$AF <- as.numeric(panCardio$AF)
+panCardio$gnomAD_AF_NFE_E <- as.numeric(panCardio$gnomAD_AF_NFE_E)
+panCardio$gnomAD_AF_AFR_E <- as.numeric(panCardio$gnomAD_AF_AFR_E)
+
+#Create genotype Matrix  per subject
+#G <- panCardio %>% 
+#filter( Id %in% ID) %>% 
+#      unite(Var,Chr,Loc,Alt) %>%
+#      mutate(G = as.integer((AF)*2)) %>%
+#      select(Id,Var,G)  %>%
+#      unique() %>%
+#      spread(Var, G, fill = 0L)
+#Number of variants
+#ncol(G)
+#[1] 987
+#Use bernoulli rescaling scaling
+#X <- scale2(G[,c(-1)])
+#X <- as.matrix(G[,c(-1)])
+#ndim <- 10
+#f1 <- flashpca(as.matrix(X), ndim=ndim, stand="none")
+
+
+#Compute allele count from allele fraction and add number of chromosomes
+merge(panCardio, subjPheno %>% select(Id,type.of.CM,Sex),by='Id')  %>%
+   group_by(Id,type.of.CM,Sex,Chr,Gene) %>% summarise(AN=2*sum(AF), NC=2*n()) -> tmp
+#Correction for actual ploidy of chrX males
+tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$AN <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$AN*.5
+tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$NC <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$NC*.5
+
+tmp %>% ungroup %>% select(Id,type.of.CM, Gene,AN ) %>% spread(Gene,AN,fill=0) -> G.PCA.df
+
+G.X.pca <- G.PCA.df[,c(-1,-2)]
+f1 <- prcomp(as.matrix(G.X.pca), scale=T, center=T)
+
+
+merge(G.PCA.df %>% select(Id,type.of.CM), subjPheno %>% select(Id,Race_Recode_Cluster2,Machine_Recode)) %>% unique ->id_phen
+cbind(id_phen,predict(f1,G.X.pca)[,c(1,2)]) ->G.pca
+
+###Plot by type of CM
+g <-  ggplot(G.pca,aes(x=PC1,y=PC2,color=type.of.CM))+
+    geom_point(size=5) +
+scale_colour_manual(values=palette.pca)
+#Axe legend and plot
+g +theme_bw()+ theme(legend.position="none")
+outPng <- paste(outDir,'/G.PCA.PC1.PC2.type.of.CM.png',sep='')
+ggsave(outPng)
+###Plot by race
+g <-  ggplot(G.pca,aes(x=PC1,y=PC2,colour=factor(Race_Recode_Cluster2)))+
+    geom_point(size=5) +
+scale_colour_manual(values=palette.pca)
+#Axe legend and plot
+g +theme_bw()+ theme(legend.position="none")
+outPng <- paste(outDir,'/G.PCA.PC1.PC2.Race.png',sep='')
+ggsave(outPng)
+### Machine
+g <-  ggplot(G.pca,aes(x=PC1,y=PC2,colour=factor(Machine_Recode)))+
+    geom_point(size=5) +
+scale_colour_manual(values=palette.pca)
+
+
+cbind(id_phen,predict(f1,G.X.pca)[,c(3,4)]) ->G.pca
+
+g <-  ggplot(G.pca,aes(x=PC3,y=PC4,color=type.of.CM))+
+    geom_point(size=5) +
+scale_colour_manual(values=palette.pca)
+
+
+
+
+
+##OLD STUFF 
+
+#Create a dataframe where each subject has only one entry, with values
+# Find the IDs, sort to match the way the dataframes will be built
+ID <- sort(unique(panCardio$Id))
+#Count instances of H & H
+H <- as.data.frame(table(panCardio[Eff=="H"]$Id))
+names(H) =c("Id", "H.Freq")
+M <- as.data.frame(table(panCardio[Eff=="M"]$Id)))
+names(M) =c("Id", "M.Freq")
+#Merge
+A <- merge(H,M,by="Id",suffixes="")
+
+#Median value of PP2, median is useless because always zero)
+MP <- with(panCardio,tapply( PP2, Id,mean,na.rm=TRUE))
+MP <- data.frame(row.names=NULL,key=names(MP), value=MP)
+names(MP) =c("Id", "PP2.Mean")
+#Merge new values
+A <- merge(A,MP,by="Id",suffixes="")
+
+#Add quantiles for PP2
+quant <- c(.25,.75,.9)
+
+QP <- with(panCardio,tapply( PP2, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QP <- array(as.numeric(unlist(QP)), dim=c(length(quant),length(ID)))
+QP <- t(QP)
+Id.df=data.frame(ID); names(temp) <- c("Id")
+QP <- cbind(Id.df,QP)
+names(QP) <- c("Id",paste("PP2",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QP,by="Id",suffixes="")
+
+MQ <- with(panCardio,tapply( GERP, Id,mean,na.rm=TRUE))
+MQ <- data.frame(row.names=NULL,key=names(MQ), value=MQ)
+names(MQ) =c("Id", "GERP.Mean")
+#Merge new values
+A <- merge(A,MQ,by="Id",suffixes="")
+
+
+#Add quantiles for GERP.
+QG <- with(panCardio,tapply( GERP, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QG <- array(as.numeric(unlist(QG)), dim=c(length(quant),length(ID)))
+QG <- t(QG)
+Id.df=data.frame(ID); names(temp) <- c("Id")
+QG <- cbind(Id.df,QG)
+names(QG) <- c("Id",paste("GERP",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QG,by="Id",suffixes="")
+
+
+#Add quantiles for ExAC
+quant <- c(.1,.25,.5,.75)
+QE <- with(panCardio,tapply( ExAC, Id, function(x) quantile(x, quant,na.rm=TRUE)))
+QE <- array(as.numeric(unlist(QE)), dim=c(length(quant),length(ID)))
+QE <- t(QE)
+Id.df=data.frame(ID); names(temp) <- c("Id")
+QE <- cbind(Id.df,QE)
+names(QE) <- c("Id",paste("ExAC",lapply(quant,toString, simplify=T),sep="."))
+A <- merge(A,QE,by="Id",suffixes="")
+
+A$PP2.0.25 <- NULL
+
+fit = prcomp(~ .- Id, data = A, scale=TRUE)
+
+#To build a variant by Id matrix
+panCardio[,c("Id","Chr", "Loc","Alt")]
+

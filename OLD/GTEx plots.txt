@@ -1,0 +1,272 @@
+###Analysis of GTEx
+
+###0. set up
+##0.0 run "read input files" (all autosomes)
+##0.1 Some functions useful in dealing with these data
+
+findGTEXCut <- function(df){
+   tmp <- df %>% filter(Gene=='FKTN' | Gene=='CBL') %>% select(Gene,GTExLV,GTExAA) %>% unique
+   return( list(cutAA=tmp[tmp$Gene=='FKTN',]$GTExAA,cutLV=tmp[tmp$Gene=='CBL',]$GTExLV))
+}
+
+#multiallelic were not present in the input, so included just means that the filter wasn't applied
+#"Genes::All Freq::No_filter Multiallelic::included ALMS1::included Indels::removed"
+
+check_df(panCardio)
+#From all genes:
+[1] "Nr of variants: 1744423"
+[1] "Nr of Genes: 17058"
+
+
+##1. Remove chrY
+panCardio <- panCardio %>% filter (Chr != 'chrY')
+check_df(panCardio)
+#[1] "Nr of variants: 1744318"
+#[1] "Nr of Genes: 17045"
+
+#To save the variants on chrY 
+#panCardio %>% filter (Chr == 'chrY') %>% group_by(Gene,Loc,Ref,Alt) %>% summarize(n())
+#Write out the excluded variants on chrY
+#write.table( panCardio %>% filter (Chr == 'chrY'), file = "Variants.ChrY.txt", append = FALSE, quote = FALSE, sep = "\t",
+#           eol = "\n", na = "NA", dec = ".", row.names = TRUE,
+#          col.names = TRUE)
+
+##2. Eliminate the genes that have no GTEx
+> panCardio %>% filter ( !( is.na(GTExLV)  | is.na(GTExAA) ) ) -> panCardio
+> check_df(panCardio)
+[1] "Nr of variants: 1729723"
+[1] "Nr of Genes: 16825"
+
+#To write out what we eliminated at this step
+#panCardio %>% filter ( is.na(GTExLV)  | is.na(GTExAA) ) %>% group_by(Gene) %>% summarise('N Variants'=n())
+#write.table( panCardio %>% filter ( is.na(GTExLV)  | is.na(GTExAA) ) %>% group_by(Gene) %>% summarise('N Variants'=n()), file = "Genes.No_Cardiac_GTEx.txt", #append = FALSE, quote = FALSE, sep = "\t",
+#           eol = "\n", na = "NA", dec = ".", row.names = TRUE,
+#            col.names = TRUE)
+
+##3. Eliminate missing low coverage in gnomAD
+#NOTE: this is using data in panCardio and not in GTEx for filtering.
+panCardio <- panCardio %>% filter( as.numeric(gnomAD_COV_E) >= 8  )
+check_df(panCardio)
+#For all genes
+#[1] "Nr of variants: 1635329"
+#[1] "Nr of Genes: 16353"
+
+##4. Eliminate genes that have segment duplications
+panCardio <- anti_join(panCardio,segDupByGene,by='Gene')
+check_df(panCardio)
+#[1] "Nr of variants: 1252213"
+#[1] "Nr of Genes: 14915"
+
+##5. Eliminate clearly misaligned/misannotated genes, like LPS1 on chr13 -- note that this step isn't filtering out anything in this sequence of steps
+panCardio %>% filter( !(Gene=='LSP1' & Chr=='chr13')) -> panCardio
+check_df(panCardio)
+#[1] "Nr of variants: 1252213"
+#[1] "Nr of Genes: 14915"
+
+##.5 Eliminate the levels that have no observations
+# Done to avoid keeping void entries in derivative tables and dataframes
+ panCardio$Gene = droplevels(panCardio$Gene)
+
+#Find GTEx cutoffs for Cardiac/non-Cardiac
+cuts <- findGTEXCut(panCardio)
+cuts
+$cutAA
+[1] 2.003208
+$cutLV
+[1] 1.493052
+
+
+##Create dataframe of Genes that are in panCardio with GTEx data 
+GTEx <- panCardio[,c("Gene","GTExLV","GTExAA")] %>% unique 
+nrow(GTEx)
+#[1] 14915
+
+ names(GTEx)
+#For all genes except chrY
+#[1] "Gene"   "GTExLV" "GTExAA"
+str(GTEx)
+'#for all genes excluding chrY
+
+
+##Add whether or not it is in panCardio
+GTEx <- GTEx %>% mutate(inPanCardio = Gene %in% geneGroups$Gene) 
+
+##Scatterplot of the genes
+p <- ggplot(GTEx) + 
+geom_point(aes(x=log(GTExLV),y=log(GTExAA),col=inPanCardio, shape=inPanCardio)) + 
+geom_point(data=subset(GTEx, inPanCardio == TRUE),aes(x=log(GTExLV),y=log(GTExAA),col=inPanCardio, shape=inPanCardio))
+
+# Plot used for the HCM_DCM landscape paper as of May 8th 2018
+cutAA <- cuts$cutAA
+cutLV <- cuts$cutLV
+p +
+geom_segment(data=GTEx,aes(x=log(cutLV),y=log(cutAA),xend=log(cutLV),yend=Inf),linetype=2, size=1) +
+geom_segment(data=GTEx,aes(y=log(cutAA),x=log(cutLV),yend=log(cutAA),xend=Inf),linetype=2,size=1)+
+theme_bw()+ theme(legend.position="none")+scale_colour_manual(name="Legend",values=palette <- c("#99CCFF","#0000CC")) 
+ggsave("GTEx_scatterplot.png") 
+
+##print Cardiac Gene List
+panCardio %>% filter(GTExAA >= cutAA & GTExLV >= cutLV) %>% select(Gene) %>% unique -> cardiacGenes
+write.table(cardiacGenes %>% arrange(Gene), file='cardiacGenes.txt', quote=FALSE, row.names=FALSE)
+
+
+
+
+###Extra stuff, some might need checking
+
+library(ggrepel)
+
+#Add Axes and explore the genes above such axes
+cutLV <- 1000 
+p1 <- p + geom_vline(xintercept=log(cutLV)) + geom_hline(yintercept=log(cutLV))
+p2 <- p1 + geom_text_repel(data=GTEx,aes(x=log(GTExLV),y=log(GTExAA),label=ifelse(GTExAA >= cutLV | GTExLV >= cutLV,as.character(Gene),''),size=4))
+p2 <- p1 + geom_text_repel(data=GTEx,aes(x=log(GTExLV),y=log(GTExAA),label=ifelse(GTExAA >= cutLV | GTExLV >= cutLV,as.character(Gene),''), col=inPanCardio),fontface = 'bold')
+#Select a part of the plot
+p2 + coord_cartesian(xlim = c(0,10), ylim = c(0,11))
+#print
+ggsave("GTExCut1000_scatterplot.png") 
+
+#Select the genes for analysis, first plot
+#Arrange genes by expression in Atrial appendix)
+GTEx %>% filter(inPanCardio==1) %>% arrange(GTExAA)
+     Gene      GTExLV       GTExAA inPanCardio
+1    CALR3    0.006030     0.006378        TRUE
+2    A2ML1    0.049135     0.095523        TRUE
+3    MYLK2    0.216951     0.318027        TRUE
+4   PRDM16    2.247543     0.629736        TRUE
+5      TTR    0.148972     0.787977        TRUE
+6     FKTN    1.534777     2.003208        TRUE
+7      CBL    1.493052     2.087047        TRUE
+
+...
+#take the first genes with GTEx RPKM > 1
+cutAA <- GTEx[GTEx$Gene=='FKTN',]$GTExAA
+#2.003208
+cutLV <- GTEx[GTEx$Gene=='CBL',]$GTExLV
+##1.493052
+
+p1 <- p + geom_vline(xintercept=log(cutLV)) + geom_hline(yintercept=log(cutAA))
+p2 <- p1 + geom_text_repel(data=GTEx %>% filter(inPanCardio),aes(x=log(GTExLV),y=log(GTExAA),label=ifelse(GTExAA <= cutAA | GTExLV <= cutLV,as.character(Gene),''),size=4))
+ggsave("GTExCutCBL_FKTN_scatterplot.png") 
+
+#Count genes above both cutoffs or below either of them (complement, should sum to the total)
+panCardio %>% select(Gene) %>% unique %>% nrow
+[1] 16825
+panCardio %>% filter(GTExAA < cutAA | GTExLV < cutLV) %>% select(Gene) %>% unique %>% nrow
+[1] 8857
+panCardio %>% filter(GTExAA >= cutAA & GTExLV >= cutLV) %>% select(Gene) %>% unique %>% nrow
+[1] 7968
+
+
+#Load functions to extract data with analysisOfCountData.txt
+
+#Create count dataframe for autosomes : upper left square
+autosomes.counts <- create.count.df(panCardio %>% filter(GTExAA >= cutAA & GTExLV >= cutLV))
+#Create count dataframe for autosomes : the rest
+autosomes.counts <- create.count.df(panCardio %>% filter(GTExAA < cutAA | GTExLV < cutLV))
+X.GLM <- create.GLM.df(autosomes.counts)
+imax <- 10
+#GLMDir=paste("GLM_COMPLEMENT_FKTN_",dateStr)
+GLMDir=paste("GLM_FKTN_",dateStr)
+dir.create(GLMDir)
+sink(paste(GLMDir,"/","glm_fits.txt",sep=''))
+#run loop from Regression file
+
+
+
+#Y <- "LVIDd_BSA"
+#Y <- "IVSd_BSA"
+#Y <- "LVPWd_BSA"
+Y <- 'EF'
+
+counts <- panCardio.counts
+
+X <- merge( counts %>% filter(! Id == '5167'),subjPheno[,c("Id","type.of.CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type of CM' <- as.factor(X$'type.of.CM')
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+
+imax <- ncol(counts)
+
+LMDir=paste(Y,"_LM_COMPLEMENT_FKTN_",dateStr,sep='')
+dir.create(LMDir)
+
+sink(paste(LMDir,"/",Y,"_lm.txt",sep=''))
+
+# Run the lm fit loop from Regression analysis
+
+
+
+
+
+
+Total nr of H+M variants
+1,675,356
+damaging variants:
+678,536
+> panCardio %>% filter (Eff=='H' | PP2 >.9 | GERP > 3.0) %>% nrow
+678,536
+nr genes
+16068
+
+average nr of damaging variants per gene.
+42.22903
+
+#count all variants in each gene
+panCardio %>% group_by(Gene) %>% summarise(N=n()) %>% arrange(N)-> tmp
+tmp %>% group_by(N) %>% summarise(GeneCount=n()) -> tmp1
+plot(log(tmp1$N), log(tmp1$GeneCount))
+
+panCardio %>% filter(phen=='DCM') %>% group_by(Gene) %>% summarise(N=n()) -> tmp
+panCardio %>% filter(phen=='HCM') %>% group_by(Gene) %>% summarise(N=n()) -> tmp1
+merge(tmp,tmp1,by='Gene',suffixes=c(".DCM",".HCM"),all=T) ->tmp2
+
+panCardio %>% filter(phen=='DCM') %>% select(Id) %>% unique -> Id.DCM
+as.data.frame(Id.DCM$Id) -> Id.DCM
+panCardio %>% filter(phen=='HCM') %>% select(Id) %>% unique -> Id.HCM
+as.data.frame(Id.HCM$Id) -> Id.HCM
+
+#Find those variances
+panCardio %>% filter(Gene=='FAM8A1' & gnomAD_AF_E < .01 & phen=='DCM' & (Eff=='H' | GERP >=3 | PP2 >.9) & NU_FREQ <=0.01)
+
+#plot using continuous colors
+
+
+panCardio %>% group_by(phen,Gene) %>% summarise(NumVar = n()) -> tmp
+tmp %>% spread(phen,NumVar,fill=0) -> varByPhen
+
+#Get number of HCM & DCM subjects
+panCardio %>% filter( Chr != 'chrY')%>% select(Id,phen) %>% unique %>% group_by(phen) %>% summarise(n())
+
+#Normalize by nr of subjects
+varByPhen %>% mutate (DCM_N=DCM/71, HCM_N=HCM/56) -> varByPhen
+varByPhen %>% mutate (VR=DCM_N/HCM_N) -> varByPhen
+#replace infinity with n*(56*2)/71
+varByPhen[varByPhen$VR == Inf,]$VR <- varByPhen[varByPhen$VR == Inf,]$DCM*(56*2)/71
+varByPhen[varByPhen$VR == 0,]$VR <- (.5*56)/(varByPhen[varByPhen$VR == 0,]$HCM*71)
+
+PLOT <- merge(GTEx,varByPhen,by='Gene')
+
+
+p <- plot_ly(PLOT, x=~log(GTExLV),y=~log(GTExAA),z=~log(VR), color=~VR)
+
+ p <- ggplot(PLOT) + 
+geom_point(aes(x=log(GTExLV),y=log(GTExAA),colour=VR)) + 
+
+geom_point(data=PLOT,aes(x=log(GTExLV),y=log(GTExAA),colour=VR, shape=inPanCardio))
+
+p+theme_bw()+ theme(legend.position="none")+scale_colour_manual(name="Legend",values=palette <- c("#99CCFF","#0000CC"))
+ggsave("GTEx_scatterplot.png") 
+
+OLD 
+
+
+
+tmp.H <- panCardio %>% filter(gnomAD_AF_E < .01) %>% filter(Eff=='H') %>% group_by(Gene,phen) %>% summarise(Var = n()) %>% spread(phen,Var,fill=0)
+tmp.M <- panCardio %>% filter(gnomAD_AF_E < .01) %>% filter(Eff=='M') %>% group_by(Gene,phen) %>% summarise(Var = n()) %>% spread(phen,Var,fill=0)
+merge(tmp.M, tmp.H, by='Gene', suffixes=c('.M','.H')) -> tmp2
+tmp3 <- merge(tmp2,panCardio[,c("Gene","GTExLV","GTExAA")] %>% unique, by='Gene')

@@ -1,0 +1,113 @@
+#Run Reading Input Files
+
+require("BeviMed")
+
+
+# Read TTN domains fileoMD5 
+#(TTNDomains.tsv) = 5f1714314626ab309bc83f0b59f00ebe
+
+TTNDomains <- read.csv("TTNDomains.tsv",sep='\t', header=FALSE, col.names=c("Domain","Locus")) %>% separate(Locus, c("Chr", "Loc"), sep=':') %>% separate(Loc, c("Start","End"), sep="-", convert=TRUE) 
+
+TTN <- panCardio %>% filter (Gene == 'TTN') 
+nrow(TTN) # 3039
+
+TTNBand = 'M-band'
+Start <- TTNDomains[TTNDomains$Domain==TTNBand,c('Start')]
+End <- TTNDomains[TTNDomains$Domain==TTNBand,c('End')]
+
+#Load functions then
+names(subjPheno) <- make.names(names(subjPheno))
+
+OUTDir=paste("TTN_DOMAIN",dateStr,sep='')
+dir.create(OUTDir)
+sink(paste(OUTDir,"/",bevMed_fits.txt",sep=''))
+
+#BEVIMED
+
+names(subjPheno) <- make.names(names(subjPheno))
+# Create a dtaframe with a column corresponding to Y
+ID <- data.frame(Id = sort(unique(panCardio$Id)))
+ID <- merge(ID,subjPheno[,c('Id','type.of.CM')], by="Id")
+names(ID) <- names(ID) %>% make.names
+ID <- ID %>% mutate(Y = ifelse(type.of.CM == "HCM", FALSE, TRUE))
+
+set.seed(1)
+for (i in 1:nrow(TTNDomains)) {
+  TTNBand <- as.character(TTNDomains[i,c("Domain")])
+  Start <- TTNDomains[TTNDomains$Domain==TTNBand,c('Start')]
+  End <- TTNDomains[TTNDomains$Domain==TTNBand,c('End')]
+  print(paste('For TTN BAND:',TTNBand, Start, End))
+  variants <- TTN %>%
+  filter(PP2 >= .99 | as.numeric(GERP) >= 5.0) %>% # | Eff == 'H') %>%
+  filter (Loc >= Start & Loc <= End ) %>%
+  group_by(Id) %>% summarise(n())
+  V.df <- merge(subjPheno[,c("Id","type.of.CM")], variants, by='Id')
+  Sel <- names(V.df) != "Id" & names(V.df) != "type.of.CM"
+  stat.fn=function(data, index){
+  myMean <- function(A) { mean(A)}
+  myMean(data[index,Sel])
+  }
+  V.df.DCM <- V.df[V.df$'type.of.CM' == 'DCM',]
+  V.df.HCM <- V.df[V.df$'type.of.CM' == 'HCM',]
+  boot.out.HCM <- boot(V.df.HCM,stat.fn,R=5000)
+  boot.out.DCM <- boot(V.df.DCM,stat.fn,R=5000) 
+  CN <- names(V.df)[Sel]
+  int <- .025
+  for (n in 1:(length(Sel)-2)){
+    HCM = quantile(boot.out.HCM$t[,n],c(int,1-int))
+    DCM = quantile(boot.out.DCM$t[,n],c(int,1-int))
+    if (HCM[[1]] >  DCM[[2]] | DCM[[1]] > HCM[[2]]){
+      #cat(paste(CN[n]," HCM: [",HCM[[1]],"-",HCM[[2]],"] DCM: [",DCM[[1]],"-",DCM[[2]],"]\n", sep=""))
+      cat(paste(CN[n]," HCM: [",sprintf("%6.4f",HCM[[1]]),"-",sprintf("%6.4f",HCM[[2]]),"] DCM: [",sprintf("%6.4f",DCM[[1]]),"-",sprintf("%6.4f",DCM[[2]]),"]\n", sep=""))
+    }
+}
+
+}
+
+
+
+for (i in 1:nrow(TTNDomains)) {
+  TTNBand <- as.character(TTNDomains[i,c("Domain")])
+  Start <- TTNDomains[TTNDomains$Domain==TTNBand,c('Start')]
+  End <- TTNDomains[TTNDomains$Domain==TTNBand,c('End')]
+  print(paste('For TTN BAND:',TTNBand, Start, End))
+  tmp <- TTN %>%  filter (Loc >= Start & Loc <= End )  %>%  filter( Eff == 'H')
+  print(nrow(tmp))
+  if(nrow(tmp) > 0){print(tmp)}
+}
+
+for (i in 1:nrow(TTNDomains)) {
+  TTNBand <- as.character(TTNDomains[i,c("Domain")])
+  Start <- TTNDomains[TTNDomains$Domain==TTNBand,c('Start')]
+  End <- TTNDomains[TTNDomains$Domain==TTNBand,c('End')]
+  print(paste('For TTN BAND:',TTNBand, Start, End))
+  variants <- TTN %>%
+      filter (Loc >= Start & Loc <= End ) %>%
+      filter(! is.na(AF)) %>% 
+      filter( Eff == 'M') %>%
+      filter(PP2 >= .9 | as.numeric(GERP) >= 3.0 | Eff == 'H' ) %>%
+      filter(gnomAD_AF_E <=  .0025) %>%
+      unite(Var,Chr,Loc,Alt) %>%
+      mutate(G = as.integer((as.numeric(AF))*2)) %>%
+      select(Id,Var,G)  %>%
+      unique() %>%
+      spread(Var, G, fill = 0L)
+  temp <- subset(ID, !(ID$Id %in% variants$Id)) %>% select (-type.of.CM,-Y)
+  temp <- cbind( temp, matrix(0L,nrow = nrow(temp), ncol = ncol(variants)-1))
+  names(temp) <- names(variants)
+  variants <- rbind(variants,temp)
+  variants <- variants[order(variants$Id),]
+  bev <- bevimed(y=ID$Y, G=as.matrix(variants[,c(-1)]) )
+  print(bev)
+  bev <- bevimed(y=!ID$Y, G=as.matrix(variants[,c(-1)]) )
+  print(bev)
+}
+
+sink()
+
+
+
+
+
+
+

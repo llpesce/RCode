@@ -1,0 +1,664 @@
+##Started on Mon Jun 17 14:59:11 CDT 2019
+## OUTPUT and COMMANDS FOR PAPER 1
+#NOTE: they are a bit messy because of the various subsets of the data, be mindful
+
+##Step 1: Read the input files:
+#Editing the variables that define where 
+#  1- The input files are on your system, and
+#  2- Scripts files are (this folder) and
+
+# Read input and load count functions and build dataframes
+RFolder='/Users/lpesce/Documents - MacBook Pro/Beth/Howtos/R/paper1'
+source(paste(RFolder,"Reading_Input_Files.R",sep="/"))
+source(paste(RFolder,"analysis_of_count_data.R",sep="/"))
+
+#Check variables defining the run
+dateStr
+#[1] "January_22_2018"
+#[1] "August_05_2019"
+
+
+##read in "Reading input files" see file for details
+## after loading the data the title should say if it is the cardiac panel or another set
+runTitle
+#[1] "Genes::TTN+PanCardio Freq::No_filter Multiallelic::included ALMS1::included Indels::removed"
+## All genes
+#[1] "Genes::All Freq::No_filter Multiallelic::included ALMS1::included Indels::removed"
+
+
+panCardio %>% select (Id) %>% unique %>% nrow()
+#[1] 127
+panCardio %>% select (Gene) %>% unique %>% nrow()
+#[1] 89
+#[1] 17058
+panCardio %>% filter(Chr=="chrX") %>% select(Gene) %>% unique %>% nrow()
+#[1] 5
+#[1] 559
+
+
+#Nr of Variants
+nrow(panCardio)
+#[1] 10357
+#[1] 1744423
+#Nr Variants Excluding chrX
+panCardio %>% filter(Chr!="chrX")  %>% nrow()
+#[1] 9975
+#[1] 1716415
+#28008 variants on chrX
+
+
+#panCardio stats without chrX
+
+variantsBySubject <- panCardio %>% filter(Chr!="chrX") %>% group_by (Id) %>% summarise(N=n())
+summary(variantsBySubject)
+#       Id            N         
+# 4001   :  1   Min.   : 54.00  
+# 4002   :  1   1st Qu.: 66.50  
+# 4003   :  1   Median : 79.00  
+# 4004   :  1   Mean   : 78.54  
+# 4005   :  1   3rd Qu.: 89.00  
+# 4006   :  1   Max.   :109.00  
+# (Other):121                   
+
+variantsBySubject <- panCardio %>% group_by (Id) %>% summarise(N=n())
+summary(variantsBySubject)
+#       Id            N         
+# 4001   :  1   Min.   : 57.00  
+# 4002   :  1   1st Qu.: 69.00  
+# 4003   :  1   Median : 81.00  
+# 4004   :  1   Mean   : 81.55  
+# 4005   :  1   3rd Qu.: 92.50  
+# 4006   :  1   Max.   :111.00  
+# (Other):121                   
+
+## Build the dataframe for pancardio
+panCardio.counts <- create.count.df(panCardio)
+counts <- panCardio.counts
+summary(counts)
+#       Id          V.all           V.gnomAD      V.PP2_9_GERP3_Eff_H  V.Freq.0025       V.Freq.01     
+# 4001   :  1   Min.   : 57.00   Min.   : 56.00   Min.   :31.00       Min.   : 0.000   Min.   : 0.000  
+# 4002   :  1   1st Qu.: 69.00   1st Qu.: 69.00   1st Qu.:41.50       1st Qu.: 2.000   1st Qu.: 3.000  
+# 4003   :  1   Median : 81.00   Median : 81.00   Median :49.00       Median : 3.000   Median : 5.000  
+# 4004   :  1   Mean   : 81.55   Mean   : 81.08   Mean   :49.98       Mean   : 3.559   Mean   : 7.094  
+# 4005   :  1   3rd Qu.: 92.50   3rd Qu.: 92.50   3rd Qu.:59.50       3rd Qu.: 5.000   3rd Qu.: 8.000  
+# 4006   :  1   Max.   :111.00   Max.   :110.00   Max.   :74.00       Max.   :15.000   Max.   :30.000  
+# (Other):121                                                                                          
+#    V.Freq.1       V.Freq.25      V.Freq.1_.25    V.Freq.25_.5  
+# Min.   : 4.00   Min.   :11.00   Min.   : 5.00   Min.   : 4.00  
+# 1st Qu.:11.00   1st Qu.:23.00   1st Qu.:10.00   1st Qu.:11.00  
+# Median :16.00   Median :30.00   Median :13.00   Median :14.00  
+# Mean   :18.09   Mean   :32.23   Mean   :14.13   Mean   :14.08  
+# 3rd Qu.:24.00   3rd Qu.:40.50   3rd Qu.:17.00   3rd Qu.:17.00  
+# Max.   :51.00   Max.   :64.00   Max.   :28.00   Max.   :23.00  
+
+## Build the dataframe for non-cardiac
+#Eliminate chrY because the AF values are inconsistent and there are only 105 variants (1/10^-5 of the total)
+panCardio %>% filter(Chr!="chrY") -> panCardio
+nrow(panCardio)
+#[1] 1744318
+cutAA <- 2.003208
+cutLV <- 1.493052
+#Build the complement to FKTN: non cardiac genes
+autosome.counts <- create.count.df(panCardio %>% filter(GTExAA < cutAA | GTExLV < cutLV))
+counts <- autosome.counts
+summary(counts)
+#       Id          V.all          V.gnomAD     V.PP2_9_GERP3_Eff_H  V.Freq.0025       V.Freq.01         V.Freq.1   
+# 4001   :  1   Min.   : 8991   Min.   : 8455   Min.   :3435        Min.   : 538.0   Min.   : 722.0   Min.   :1571  
+# 4002   :  1   1st Qu.: 9352   1st Qu.: 8793   1st Qu.:3552        1st Qu.: 628.5   1st Qu.: 817.5   1st Qu.:1710  
+# 4003   :  1   Median : 9488   Median : 8940   Median :3601        Median : 671.0   Median : 861.0   Median :1793  
+# 4004   :  1   Mean   : 9736   Mean   : 9168   Mean   :3710        Mean   : 770.2   Mean   :1099.4   Mean   :2118  
+# 4005   :  1   3rd Qu.: 9705   3rd Qu.: 9141   3rd Qu.:3707        3rd Qu.: 739.0   3rd Qu.: 958.0   3rd Qu.:1926  
+# 4006   :  1   Max.   :11284   Max.   :10622   Max.   :4310        Max.   :1342.0   Max.   :2386.0   Max.   :3876  
+# (Other):121                                                                                                       
+#   V.Freq.25     V.Freq.1_.25   V.Freq.25_.5 
+ Min.   :2810   Min.   :1186   Min.   :1845  
+ 1st Qu.:3020   1st Qu.:1296   1st Qu.:2050  
+ Median :3128   Median :1327   Median :2109  
+ Mean   :3445   Mean   :1326   Mean   :2089  
+ 3rd Qu.:3310   3rd Qu.:1355   3rd Qu.:2153  
+ Max.   :5189   Max.   :1458   Max.   :2245  
+
+
+##Run Phenotype Regression & PCA only for panCardio genes
+# See Phenotype_Analysis.R  Note that it requires the previous steps
+
+
+##run GLM with non normalized data. 
+#  TO Run GLM throwing TTN out
+#  panCardioCTTN.counts <- create.count.df(panCardio %>% filter (Gene != 'TTN'))
+#  counts <- panCardioCTTN.counts
+
+
+X.GLM <- create.GLM.df(counts)
+X.GLM$Race_Recode_Cluster2 <- factor(X.GLM$Race_Recode_Cluster2, 
+                           levels = c("0", "1"), 
+                           labels = c("EA", "AA"))
+X.GLM$Machine_Recode <- factor(X.GLM$Machine_Recode, 
+                           levels = c("1", "2"), 
+                           labels = c("XTEN", "Other"))
+#Add corrected-self-defined ancestry
+X.GLM <- left_join(X.GLM,subjPheno %>% select(Id,Race.ethnicity),by='Id')
+#Summary for cardiac panel genes
+summary(X.GLM)
+#       Id          V.all           V.gnomAD      V.PP2_9_GERP3_Eff_H  V.Freq.0025       V.Freq.01         V.Freq.1    
+# 4001   :  1   Min.   : 57.00   Min.   : 56.00   Min.   :31.00       Min.   : 0.000   Min.   : 0.000   Min.   : 4.00  
+# 4002   :  1   1st Qu.: 69.00   1st Qu.: 69.00   1st Qu.:41.50       1st Qu.: 2.000   1st Qu.: 3.000   1st Qu.:11.00  
+# 4003   :  1   Median : 81.00   Median : 81.00   Median :49.00       Median : 3.000   Median : 5.000   Median :16.00  
+# 4004   :  1   Mean   : 81.55   Mean   : 81.08   Mean   :49.98       Mean   : 3.559   Mean   : 7.094   Mean   :18.09  
+# 4005   :  1   3rd Qu.: 92.50   3rd Qu.: 92.50   3rd Qu.:59.50       3rd Qu.: 5.000   3rd Qu.: 8.000   3rd Qu.:24.00  
+# 4006   :  1   Max.   :111.00   Max.   :110.00   Max.   :74.00       Max.   :15.000   Max.   :30.000   Max.   :51.00  
+# (Other):121                                                                                                          
+#   V.Freq.25      V.Freq.1_.25    V.Freq.25_.5   type.of.CM Race_Recode_Cluster2 Machine_Recode Race.ethnicity
+# Min.   :11.00   Min.   : 5.00   Min.   : 4.00   HCM:56     EA:103               XTEN :74       AA:24         
+# 1st Qu.:23.00   1st Qu.:10.00   1st Qu.:11.00   DCM:71     AA: 24               Other:53       EA:87         
+# Median :30.00   Median :13.00   Median :14.00                                                  HA:12         
+# Mean   :32.23   Mean   :14.13   Mean   :14.08                                                  OA: 4         
+# 3rd Qu.:40.50   3rd Qu.:17.00   3rd Qu.:17.00                                                                
+# Max.   :64.00   Max.   :28.00   Max.   :23.00                                       
+
+#Summary for complement of FKTN
+ summary(X.GLM)
+#       Id          V.all          V.gnomAD     V.PP2_9_GERP3_Eff_H  V.Freq.0025       V.Freq.01         V.Freq.1   
+# 4001   :  1   Min.   : 8991   Min.   : 8455   Min.   :3435        Min.   : 538.0   Min.   : 722.0   Min.   :1571  
+# 4002   :  1   1st Qu.: 9352   1st Qu.: 8793   1st Qu.:3552        1st Qu.: 628.5   1st Qu.: 817.5   1st Qu.:1710  
+# 4003   :  1   Median : 9488   Median : 8940   Median :3601        Median : 671.0   Median : 861.0   Median :1793  
+# 4004   :  1   Mean   : 9736   Mean   : 9168   Mean   :3710        Mean   : 770.2   Mean   :1099.4   Mean   :2118  
+# 4005   :  1   3rd Qu.: 9705   3rd Qu.: 9141   3rd Qu.:3707        3rd Qu.: 739.0   3rd Qu.: 958.0   3rd Qu.:1926  
+# 4006   :  1   Max.   :11284   Max.   :10622   Max.   :4310        Max.   :1342.0   Max.   :2386.0   Max.   :3876  
+# (Other):121                                                                                                       
+#   V.Freq.25     V.Freq.1_.25   V.Freq.25_.5  type.of.CM Race_Recode_Cluster2 Machine_Recode Race.ethnicity
+# Min.   :2810   Min.   :1186   Min.   :1845   HCM:56     EA:103               XTEN :74       AA:24         
+# 1st Qu.:3020   1st Qu.:1296   1st Qu.:2050   DCM:71     AA: 24               Other:53       EA:87         
+# Median :3128   Median :1327   Median :2109                                                  HA:12         
+# Mean   :3445   Mean   :1326   Mean   :2089                                                  OA: 4         
+# 3rd Qu.:3310   3rd Qu.:1355   3rd Qu.:2153                                                                
+# Max.   :5189   Max.   :1458   Max.   :2245                                                                
+                                                                   
+#Rename the directory depending upon the analysis and desires
+GLMDir="~/Dropbox/DCM_HCM_Landscape_MRP/GLM"
+#GLMDir="~/Dropbox/DCM_HCM_Landscape_MRP/GLM_RACE"
+
+GLMDir="~/Dropbox/DCM_HCM_Landscape_MRP/GLM_C_FKTN"
+
+dir.create(GLMDir)
+
+sink(paste(GLMDir,"/","glm_fits.txt",sep=''))
+
+imax <- as.integer(ncol(counts))
+colSums(X.GLM[,2:imax],dims=1)
+
+#Run nested models 
+for (i in 2:imax){ #We can also look at all the interval types to see if the pattern is consistent by chainging i
+    x <- names(X.GLM)[i]
+    print (paste('##For subset: ',x)) 
+    print("#Nested models are compared via ANOVA function using deviance") 
+
+    #Run first order model: Race, Machine and nr of variants -- all kept
+    print("#First Order Models") 
+
+    model.GLM <- glm( type.of.CM ~  Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+
+    model.GLM <- glm( type.of.CM ~ X.GLM[[x]],family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+
+    model.GLM <- glm( type.of.CM ~  Machine_Recode ,family=binomial,data=X.GLM)
+    print(summary(model.GLM))
+
+
+    print("#Second Order Models adding to Machine_recode") 
+    model2.GLM <- glm( type.of.CM ~  Machine_Recode +  Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model2.GLM))
+
+    print(anova(model2.GLM,model.GLM, test='Chisq'))
+    model2.GLM <- glm( type.of.CM ~ Machine_Recode + X.GLM[[x]],family=binomial,data=X.GLM)
+    print(summary(model2.GLM))
+
+    print(anova(model2.GLM,model.GLM, test='Chisq'))
+
+
+    print("#Third Order Models adding to Machine and x") 
+    model3.GLM <- glm( type.of.CM ~ Machine_Recode + X.GLM[[x]] + Race_Recode_Cluster2 ,family=binomial,data=X.GLM)
+    print(summary(model3.GLM))
+    print(anova(model3.GLM,model2.GLM, test='Chisq'))
+
+    
+    # Run analysis on subsets to check dependencies
+    print("Run GLM only on EA according to Race_Recode_Cluster2")
+    X_1 <- X.GLM %>% filter(Race_Recode_Cluster2 =='EA') # Subset subjects
+    model.GLM <- glm( type.of.CM ~ X_1[[x]] + Machine_Recode ,family=binomial,data=X_1 )
+    print(summary(model.GLM))
+
+    print("Run GLM only on EA according to Race.ethnicity")
+    X_1 <- X.GLM %>% filter(Race.ethnicity =='EA') # Subset subjects
+    model.GLM <- glm( type.of.CM ~ X_1[[x]] + Machine_Recode ,family=binomial,data=X_1 )
+    print(summary(model.GLM))
+
+    print("Run GLM only on non HA according to Race.ethnicity")
+    X_1 <- X.GLM %>% filter(Race.ethnicity !='HA') # Subset subjects
+    model.GLM <- glm( type.of.CM ~ X_1[[x]] + Machine_Recode ,family=binomial,data=X_1 )
+    print(summary(model.GLM))
+
+
+}
+
+sink()
+
+
+
+# Make plots for models
+for (i in 2:imax){ #We can also look at all the interval types to see if the pattern is consistent by chainging i
+
+    x <- names(X.GLM)[i]
+
+    DCM <- X.GLM %>%  filter(type.of.CM == 'DCM') %>% select (Id, x,Race_Recode_Cluster2)
+    DCM <- cbind(DCM, c(1))
+    names(DCM) <- c("Id","NumVar","Race", "PofDCM")
+    #Create matrix with number of subjects for number of variants and use it to shift points
+    cnt <- table(DCM$NumVar)
+    for (j in names(cnt)){
+       shift=-0.1
+       dx=0.015
+       for (Id in DCM[DCM$NumVar==j,]$Id){
+          DCM[DCM$Id == Id,]$PofDCM <- DCM[DCM$Id == Id,]$PofDCM+shift
+          shift <- shift+dx
+       }
+    }
+
+    HCM <- X.GLM %>%  filter(type.of.CM == 'HCM') %>% select (Id,x,Race_Recode_Cluster2)
+    HCM <- cbind(HCM, c(0))
+    names(HCM) <- c("Id","NumVar","Race", "PofDCM")
+    cnt <- table(HCM$NumVar)
+    for (j in names(cnt)){
+       shift=0.0
+       dx=0.015
+       for (Id in HCM[HCM$NumVar==j,]$Id){
+          HCM[HCM$Id == Id,]$PofDCM <- HCM[HCM$Id == Id,]$PofDCM+shift
+          shift <- shift+dx
+       }
+    }
+    #Points with the averages by race by phenotype
+
+
+    model.GLM <- glm( type.of.CM ~ X.GLM[[x]],family=binomial,data=X.GLM)
+#    print(summary(model.GLM))
+    intercept <- as.numeric( coef( model.GLM )[1] )
+    beta <- as.numeric( coef( model.GLM )[2] )
+    rangex <- range(X.GLM[[x]])
+    xlb<-max(rangex[1]-3,0)
+    xub<-rangex[2]+3
+    range <- seq(xlb,xub,by=1)
+    ylb<-0
+    yub<-1
+    pRatio <- ( (xub-xlb)/(yub-ylb) ) 
+    logodds <- intercept + beta * range
+    prob <- exp(logodds) / (1+exp(logodds))
+    PLOT <- data.frame(range,prob)
+
+    HCM$RaceCol <- c("HCM.0","HCM.1")[HCM$Race]
+    DCM$RaceCol <- c("DCM.0","DCM.1")[DCM$Race]
+
+    ggplot(PLOT, aes(range)) +                    # basic graphical object
+    geom_line(size=2,linetype=1,aes(y=prob, colour='Fit')) +  # first layer
+    labs(title = paste('GLM for Variants for',x),x = '# of Variants', y = 'Probability of DCM') + # Third
+#   scale_colour_manual(name="Legend",values=c(Fit="black",HCM.0="#006633",HCM.1="#33FF00",DCM.0="#0000FF",DCM.1="#66CCFF",shape=DCM$Race))+
+#    scale_colour_manual(name="Legend",values=c(Fit="black",HCM.0="#FF0000",HCM.1="#990000",DCM.0="#000000",DCM.1="#999999",shape=DCM$Race))+
+    scale_colour_manual(name="Legend",values=c(Fit="black",HCM.0="#FF0000",HCM.1="#FF0000",DCM.0="#000000",DCM.1="#000000",shape=DCM$Race))+
+    geom_point(data=HCM,mapping = aes(x = NumVar, y = PofDCM, colour=RaceCol), size=2.5)+
+    geom_point(data=DCM,mapping = aes(x = NumVar, y = PofDCM, colour=RaceCol), size=2.5)+ 
+# Value for V.all
+    coord_fixed(ratio=pRatio) +
+    ylim(0, 1) +
+    xlim(xlb,xub) +
+   theme_bw()
+   outPng <- paste(GLMDir,"/", x,'.png',sep='')
+
+    ggsave(outPng)
+
+}
+
+
+
+##Linear model Phenotype value vs genetic makeup only for pancardio genes
+
+#Use PanCardio
+panCardio.counts <- create.count.df(panCardio)
+counts <- panCardio.counts
+
+##Y <-'largest.LVIDd'
+##Y <- 'Largest.ivsd.value.cm.'
+##Y <- 'Largest.LVPWd.cm.'
+
+#Use normalized values
+#Y <- "LVIDd_BSA"
+#Y <- "IVSd_BSA"
+#Y <- "LVPWd_BSA"
+Y <- 'EF'
+
+
+X <- merge( counts %>% filter(! Id == '5167'),subjPheno[,c("Id","type.of.CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type.of.CM' <- as.factor(X$'type.of.CM')
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+
+imax <- ncol(counts)
+
+N_AA=TRUE
+if(N_AA){
+#Excluding AA
+  LMDir=paste("~/Dropbox/DCM_HCM_Landscape_MRP/",Y,"_LM_NO_AA_",dateStr,sep='')
+  X <- X %>% filter(Race_Recode_Cluster2 =='0') 
+}else{
+# For All subjects
+LMDir=paste("~/Dropbox/DCM_HCM_Landscape_MRP/",Y,"_LM_newColor_1_",dateStr,sep='')
+}
+dir.create(LMDir)
+
+sink(paste(LMDir,"/",Y,"_lm.txt",sep=''))
+
+for (i in 2:imax){
+    x <- names(X)[i]
+    print (paste('for interval',x)) 
+    fitM.DCM <- lm (X[[Y]] ~ Machine_Recode  , X, subset = X$'type.of.CM' =='DCM')
+    fitM.HCM <- lm (X[[Y]] ~ Machine_Recode  , X, subset = X$'type.of.CM' =='HCM')
+    print(summary(fitM.DCM))
+    print(summary(fitM.HCM))
+
+    if(!N_AA){
+       fitR.DCM <- lm (X[[Y]] ~ Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='DCM')
+       fitR.HCM <- lm (X[[Y]] ~ Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='HCM')
+       print(summary(fitR.DCM))
+       print(summary(fitR.HCM))
+    }
+
+    fit.DCM <- lm (X[[Y]] ~ X[[x]] , X, subset = X$'type.of.CM' =='DCM')
+    pred.DCM <- data.frame(Y.pred = predict(fit.DCM, X),var=X[[x]])
+    fit.HCM <- lm (X[[Y]] ~ X[[x]] , X, subset = X$'type.of.CM' =='HCM')
+    pred.HCM <- data.frame(Y.pred = predict(fit.HCM, X),var=X[[x]])
+    print(summary(fit.DCM))
+    print(summary(fit.HCM))
+
+    # Colors for DCM and HCM x race, the repeated color is for the fit with no race
+    #palette <- c("#999999","#999999","#000000", "#FF0000","#FF0000","#990000")
+    palette <- c("#000000","#000000","#000000", "#FF0000","#FF0000","#FF0000")
+
+
+    
+    ggplot(X,aes(x=X[[x]],y=X[[Y]],color=interaction(X$'type.of.CM',X$'Race_Recode_Cluster2')))+  
+    geom_point(size=6, show.legend=F) + 
+    labs(title = paste('Scatterplot of ',Y,'by type of CM'), x = x, y = Y) +
+    geom_line(color="black",data = pred.DCM,size=2, linetype=6, aes(x=var, y=Y.pred)) +
+    geom_line(color="red",data = pred.HCM,size=2, linetype=6, aes(x=var, y=Y.pred)) +
+    geom_smooth(aes(x=X[[x]],y=X[[Y]],group=type.of.CM,colour=type.of.CM),method='lm',formula=y~x,size=0)+ 
+    scale_colour_manual(name="Legend",values=palette) +
+    theme_bw()
+
+    outPng <- paste(LMDir,"/",Y,"_race_",x,'.png',sep='')
+    ggsave(outPng)
+
+    if(!N_AA){
+      fitRV.DCM <- lm (X[[Y]] ~ X[[x]] + Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='DCM')
+      fitRV.HCM <- lm (X[[Y]] ~ X[[x]] + Race_Recode_Cluster2  , X, subset = X$'type.of.CM' =='HCM')
+      print(summary(fitRV.DCM))
+      print(summary(fitRV.HCM))
+      print(anova(fitRV.DCM,fit.DCM))
+    }
+    fitMV.DCM <- lm (X[[Y]] ~ X[[x]] + Machine_Recode  , X, subset = X$'type.of.CM' =='DCM')
+    fitMV.HCM <- lm (X[[Y]] ~ X[[x]] + Machine_Recode  , X, subset = X$'type.of.CM' =='HCM')
+    print(summary(fitMV.DCM))
+    print(summary(fitMV.HCM))
+    print(anova(fitMV.DCM,fit.DCM))
+
+
+}
+
+sink()
+
+
+
+##Resampling genes
+
+# Remove the "cardiac genes"
+panCardio %>% filter(GTExAA < cutAA | GTExLV < cutLV) -> panCardio
+panCardio  %>% filter(! Id == '5167') -> panCardio #Eliminate patient described above (hopefully)
+panCardio$Gene %>% unique %>% length
+#[1] 10518
+panCardio$Id %>% unique %>% length
+#[1] 126
+
+#cleanup the dataframe
+droplevels(panCardio$Gene) -> panCardio$Gene
+droplevels(panCardio$Id) -> panCardio$Id
+
+#Build list of genes
+panCardio$Gene %>% unique %>% sort -> C_FKTN.genes
+
+Dir=paste("~/Dropbox/DCM_HCM_Landscape_MRP/gene89samples",dateStr,sep='')
+dir.create(Dir)
+
+NB=1000
+
+#Check the general properties of the nr of variants in V.all to make sure is similar to cardiac gene panel, it is
+b=c()
+for(B in 1:NB){
+    sample(C_FKTN.genes,89) -> gene_set #sample the same size as the gene set used
+    counts <- create.count.df(panCardio %>% filter(Gene %in% gene_set) )
+    b <- rbind(b, summary(counts$V.all) %>% as.numeric) 
+}; 
+ apply(b,2,summary)
+#           [,1]    [,2]     [,3]      [,4]     [,5]    [,6]
+#Min.     27.000  36.000  40.0000  41.53968  44.7500  61.000
+#1st Qu.  46.000  59.000  64.0000  64.70635  69.0000  89.000
+#Median   53.000  67.250  73.0000  74.08333  79.7500 102.000
+#Mean     58.011  74.048  80.1385  81.09440  87.3245 110.829
+#3rd Qu.  63.000  81.000  88.0000  89.02579  96.0000 121.000
+#Max.    201.000 240.250 265.5000 261.84921 280.7500 322.000
+apply(b,2,sd)
+#[1] 21.43857 26.34461 28.07565 27.75796 29.75266 34.41064
+#One could use mad, for constraining, but I see no reason to be too picky here
+apply(b,2,mad)
+#[1] 11.86080 15.19665 16.30860 16.89693 17.97652 22.23900
+
+# The means and medians are OK, but the extreme value are a bit too extreme. we will constrain the
+# Random resampling to have the number of variants in about the same ballpark as the cardiac panel
+
+
+Y <- c("LVIDd_BSA","IVSd_BSA","LVPWd_BSA",'EF')
+
+DCM.a <- matrix(0,nrow=4,ncol=NB)
+DCM.b <- matrix(0,nrow=4,ncol=NB)
+HCM.a <- matrix(0,nrow=4,ncol=NB)
+HCM.b <- matrix(0,nrow=4,ncol=NB)
+
+
+for(B in 1:NB){
+    sample(C_FKTN.genes,89) -> gene_set #sample the same size as the gene set used
+    counts <- create.count.df(panCardio %>% filter(Gene %in% gene_set) )
+    #Contrain the gene sample to be within on bootstrap sample SD from the value (SD for min and max are different)
+    #while ( min(counts$V.all) < 35 | min(counts$V.all) > 79 |  max(counts$V.all) < 77 | max(counts$V.all) > 144){ #using SD
+    while ( min(counts$V.all) < 45 | min(counts$V.all) > 69 |  max(counts$V.all) < 89 | max(counts$V.all) > 133){ #Using mad
+       sample(C_FKTN.genes,89) -> gene_set #sample the same size as the gene set used
+       counts <- create.count.df(panCardio %>% filter(Gene %in% gene_set) )
+    }
+    imax <- ncol(counts)
+    XB <- merge( counts ,subjPheno[,c("Id","type.of.CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+    XB$'Race_Recode_Cluster2' <- as.factor(XB$'Race_Recode_Cluster2')
+    XB$'type.of.CM' <- as.factor(XB$'type.of.CM')
+    for(i in 1:4){
+        XB %>% select( - !!Y[-i] ) -> X
+        #Eliminate NA
+        X <- X[complete.cases(X),]
+        fit.DCM <- lm ( X[[ Y[i] ]] ~ V.all , X, subset = X$'type.of.CM' =='DCM')
+        DCM.a[i,B] <- (fit.DCM$coefficients)[1]
+        DCM.b[i,B] <- (fit.DCM$coefficients)[2]
+        fit.HCM <- lm ( X[[ Y[i] ]] ~ X[['V.all']] , X, subset = X$'type.of.CM' =='HCM')
+        HCM.a[i,B] <- (fit.HCM$coefficients)[1]
+        HCM.b[i,B] <- (fit.HCM$coefficients)[2]
+  
+       #print(summary(fit.DCM))
+        #print(summary(fit.HCM))
+    }
+
+}
+
+# Report percentiles for the slopes (we do not care about the intercept
+for(i in 1:4){
+    cat(Y[i],"\n")
+    cat("    ",paste('DCM',paste(quantile(DCM.b[i,],c(.025,.5,.975)) %>% round(5),collapse=";")),"\n")
+    cat("    ",paste('HCM',paste(quantile(HCM.b[i,],c(.025,.5,.975))  %>% round(5),collapse=";")),"\n")
+ 
+}
+
+Yi <- 3
+Y[Yi]
+x_range <- seq(57, 111)
+rm(fun, fun1,Sample.DCM, Sample.HCM, Sample.DCM.CIs, Sample.HCM.CIs)
+fun1 <- function(x){DCM.a[Yi,1] + x *DCM.b[Yi,1]}
+Sample.DCM <-  data.frame(sample = 1, x = x_range, y = x_range %>% map_dbl(fun1)) 
+for (i in 2:NB){
+  fun1 <- function(x){DCM.a[Yi,i] + x *DCM.b[Yi,i]}
+  tmp <- data.frame(sample = i, x = x_range, y = x_range %>% map_dbl(fun1)) 
+  Sample.DCM <- rbind(Sample.DCM, tmp)
+}
+Sample.DCM.CIs <- Sample.DCM %>% group_by(x) %>% summarise(mean = mean(y), sd=sd(y)) %>% mutate(Low = mean - 1.96*sd, High=mean + 1.96*sd) 
+#HCM
+fun <- function(x){HCM.a[Yi,1] + x *HCM.b[Yi,1]}
+Sample.HCM <-  data.frame(sample = 1, x = x_range, y = x_range %>% map_dbl(fun)) 
+for (i in 2:NB){
+  fun <- function(x){HCM.a[Yi,i] + x *HCM.b[Yi,i]}
+  tmp <- data.frame(sample = i, x = x_range, y = x_range %>% map_dbl(fun)) 
+  Sample.HCM <- rbind(Sample.HCM, tmp)
+}
+Sample.HCM.CIs <- Sample.HCM %>% group_by(x) %>% summarise(mean = mean(y), sd=sd(y)) %>% mutate(Low = mean - 1.96*sd, High=mean + 1.96*sd) 
+
+
+ggplot(Sample.DCM, aes(x, y)) +
+    geom_line(data=Sample.DCM,aes(y = y, group = sample), alpha=.2, col='black') +
+    geom_ribbon(data=Sample.DCM.CIs, aes(x=x, y=mean,ymin=Low,ymax=High), color='black', linetype=6, size=3, fill='gray', alpha=.4)+
+   geom_line(data=Sample.HCM,aes(y = y, group = sample), alpha=.2, col='red') +
+    geom_ribbon(data=Sample.HCM.CIs, aes(x=x, y=mean,ymin=Low,ymax=High), color='red', size=3, linetype=6, fill='red', alpha=.4) +
+    coord_cartesian(ylim = c( (c(Sample.HCM$y,Sample.DCM$y) %>% min)*.9, (c(Sample.HCM$y,Sample.DCM$y) %>% max)*1.1)) 
+
+outPng <- paste(Dir,"/",Y[Yi],'.png',sep='')
+ggsave(outPng)
+
+#Go to Bootstrap_including_frequency
+
+##OLDER STUFF 
+
+
+
+
+counts <- autosomes.counts
+
+Y <- "LVIDd_BSA"
+#Y <- "IVSd_BSA"
+#Y <- "LVPWd_BSA"
+#Y <- 'EF'
+
+X <- merge( counts%>% filter(! Id == '5167'),subjPheno[,c("Id","type.of.CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+
+#X <- merge( counts %>% filter(! Id == '5167'),subjPheno[,c("Id","type.of.CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type.of.CM' <- as.factor(X$'type.of.CM')
+#Eliminate NA
+X <- X[complete.cases(X),]
+
+
+imax <- ncol(counts)
+
+LMDir=paste(Y,"_COMPLEMENT_FKTN_LM_1_",dateStr,sep='')
+dir.create(LMDir)
+
+sink(paste(LMDir,"/",Y,"_lm.txt",sep=''))
+
+#run LM loop from Regression analysis HCM vs DCM, add race and split by race
+
+
+##Run ratio of nr variants analysis
+imax <- as.integer(ncol(autosomes.counts))
+for (i in 2:imax){
+  var <- names(autosomes.counts)[i]
+  print(var)
+  A <- create.norm.df(panCardio.counts,autosomes.counts,var)
+  X.GLM <- create.GLM.df(A
+)
+  x <- names(X.GLM)[2]
+  model.GLM <- glm( type.of.CM ~ X.GLM[[x]],family=binomial,data=X.GLM)
+  print(summary(model.GLM))
+}
+
+
+
+
+
+
+### GLM for H+M
+A <- as.data.frame(table(panCardio %>% filter(Eff == "H") %>% select(Id) ))
+names(A) <- c("Id", "V.H")
+M <- as.data.frame(table(panCardio %>% filter(Eff == "M") %>% select(Id) ))
+names(M) <- c("Id", "V.M")
+A <- merge(A,M,by="Id",suffixes="")
+
+
+X.GLM <- create.GLM.df(A)
+
+GLMDir=paste("GLM_ApH",dateStr,sep='')
+dir.create(GLMDir)
+
+sink(paste(GLMDir,"/","glm_fits.txt",sep=''))
+
+imax <- 3
+colSums(X.GLM[,2:imax],dims=1)
+
+model.GLM <- glm( type.of.CM ~ V.H ,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.H + Machine_Recode,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.H + Race_Recode_Cluster2,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.H + Machine_Recode + Race_Recode_Cluster2,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+
+model.GLM <- glm( type.of.CM ~ V.M ,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.M + Machine_Recode,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.M + Race_Recode_Cluster2,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.M + Machine_Recode + Race_Recode_Cluster2,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.H + V.M ,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+model.GLM <- glm( type.of.CM ~ V.H + V.M + Machine_Recode + Race_Recode_Cluster2,family=binomial,data=X.GLM)
+print(summary(model.GLM))
+
+sink()
+
+
+##Create and save fits and plots 
+# Note: adding sink(somefile) before and sink() after the results of the fits will also be 
+#  saved
+names(X.GLM)
+
+
+#Plot for H
+plotSaveGLM(X.GLM,'V.H', 'test' ,GLMDir)
+#Plot for M
+plotSaveGLM(X.GLM,'V.M', 'test' ,GLMDir)
+#Plot for all
+plotSaveGLM(X.GLM %>% mutate(V = V.M+V.H),'V', 'test' ,GLMDir)
+
+#Do BeviMed analysis 
+
+
+
+

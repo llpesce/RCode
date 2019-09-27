@@ -1,0 +1,322 @@
+#Wipe all objects from R memory
+rm(list=ls())
+require(dplyr)
+require(tidyr)
+
+# data to exclude
+ALMS1 <- F
+MultiAllelic <- T
+Indels <- T
+gnomAD <- F
+NU_FQ <- T
+Remove_CBL <- F
+
+#Set the interval of ExAC whose variants will be included
+FqMin <- 0.00
+FqMax <- 900/900
+
+#Pick variable to be used as 
+Y <- 'EF'
+#Normalized variables 
+#Y <- "LVIDd_BSA"
+#Y <- "IVSd_BSA"
+#Y <- "LVPWd_BSA"
+
+
+
+setwd("/Users/lpesce//Documents - MacBook Pro/Beagle users/Megan/HCM_DCM")
+dir() #List files in the workdirectory
+
+library("ggplot2")
+
+##Read phenotype Data
+library("readxl")
+subjPheno <- read_excel("Cohort Patient Data MASTERmrp_machine_cluster.xlsx")
+subjPheno$Id <- as.factor(subjPheno$ID)
+subjPheno$ID <- NULL
+#Reorder fields as necessary for readability
+refCols <- c("Id")
+subjPheno <- subjPheno[, c(refCols, setdiff(names(subjPheno), refCols))]
+str(subjPheno)
+#Check some fields for sanity and fix if necessary
+is.numeric(subjPheno$EF)
+subjPheno$'age 1st present' <- as.numeric(subjPheno$'age 1st present')
+
+#Read Gene group data
+geneGroups <- read_excel("Pan_Card_LMM_GeneDx_Invitae_groups.xlsx", sheet=2, col_names=FALSE)
+names(geneGroups) <- c("Gene","Group")
+geneGroups$Gene <- as.factor(geneGroups$Gene)
+geneGroups$Group <- as.factor(geneGroups$Group)
+
+
+
+#Select a tab separated variants file  -- File has some subjects already removed
+#File copied from Server on August 30th 2017
+# scp lpe159@mcnallylabwkstn01.fsm.northwestern.edu:/data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/HCM_DCM_August2017/PanCardio/Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe .
+# 67ab62a36248aa0bc25acb6847f42e77  /data/VariantAnalysis/HCM_DCM_Comparison/HCM_DCM_Analysis/HCM_DCM_August2017/PanCardio/Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe
+panCardio.file <- "Genomes_MegaSeq6.0_Pan_Card_LMM_GeneDx_Invitae.dataframe" #Pan Cardio gene set
+panCardio.all <- read.csv(panCardio.file, sep="\t",colClasses = "character") #dataframe containing all the data
+
+
+##Convert variables to the types 
+#Factors 
+panCardio.all$Id=as.factor(panCardio.all$Id)
+panCardio.all$phen=as.factor(panCardio.all$phen)
+panCardio.all$Gene=as.factor(panCardio.all$Gene)
+panCardio.all$Chr=as.factor(panCardio.all$Chr)
+panCardio.all$Ref=as.factor(panCardio.all$Ref)
+panCardio.all$Alt=as.factor(panCardio.all$Alt)
+#Ordered factors
+panCardio.all$Eff = factor(panCardio.all$Eff,levels=c("M","H"),ordered=TRUE) #Ordered!
+
+#Conversion of numbers, notice that some of them will prouce NA because there is no number for them in the dataframe
+panCardio.all$Loc=as.integer(panCardio.all$Loc)
+panCardio.all$gnomAD_AF_E=as.numeric(panCardio.all$gnomAD_AF_E)
+panCardio.all$gnomAD_COV_E=as.numeric(panCardio.all$gnomAD_COV_E)
+panCardio.all$PP2=as.numeric(panCardio.all$PP2)
+#panCardio.all$ExAC=as.numeric(panCardio.all$ExAC)
+
+
+# We don't convert GERP because it has "Indel" information
+#panCardio.all$GERP=as.numeric(panCardio.all$GERP)
+
+
+#Split GTEX to create two numerical columns
+library(data.table)
+#Split GTEx in LV and AA, then pick the numbers and put them at the end of the dataframe
+setDT(panCardio.all)[, c("GTExLV","GTExAA") := tstrsplit(GTEx, ",")[c(2,4)]]
+panCardio.all$GTExAA=as.numeric(panCardio.all$GTExAA)
+panCardio.all$GTExLV=as.numeric(panCardio.all$GTExLV)
+panCardio.all$GTEx <- NULL #Eliminate GTEx original valuels()
+
+#Create actual frequencies for the 900 genomes
+panCardio.all <- panCardio.all %>%
+ separate(NUGENOMES_FREQ, c("num","den"), sep = "\\/") %>%
+ mutate(NU_FREQ = as.numeric(num)/as.numeric(den)) %>%
+ select(-num,-den)
+
+#Create filtered dataset
+runTitle <- ""
+if(gnomAD == T & NU_FQ == F){
+panCardio <- panCardio.all[ FqMin <= panCardio.all$gnomAD_AF_E  & panCardio.all$gnomAD_AF_E <= FqMax  ,]
+runTitle <- paste(FqMin ,' <= gnomAD_E <= ', FqMax, sep = "")
+}else if(gnomAD == F & NU_FQ == T){
+panCardio <- panCardio.all[ FqMin <= panCardio.all$NU_FREQ  & panCardio.all$NU_FREQ <= FqMax  ,]
+runTitle <- paste(FqMin ,' <= NU_GENOMES_FQ <= ', FqMax, sep = "")
+}else{
+ panCardio <- panCardio.all
+ runTitle <- "No gnomAD filter"
+}
+
+if (MultiAllelic == F) {
+ panCardio$AF <- as.numeric(panCardio$AF) # Multiallelic are coereced to NA
+ panCardio <-  panCardio[! is.na(panCardio$AF),]
+ runTitle <- paste(runTitle, " Multiallelic removed", sep = "")
+}else{
+ runTitle <- paste(runTitle, " Multiallelic included", sep = "")
+}
+
+if (ALMS1 == F) {
+panCardio <-  panCardio[! panCardio$Gene == "ALMS1",]
+ runTitle <- paste(runTitle, " ALMS1 removed", sep = "")
+}else{
+ runTitle <- paste(runTitle, " ALMS1 included", sep = "")
+}
+
+
+if (Indels == F) {
+ panCardio <-  panCardio[! panCardio$GERP == "INDEL",]
+ runTitle <- paste(runTitle, " Indels removed", sep = "")
+}else{
+ runTitle <- runTitle
+}
+
+
+if ( Remove_CBL == T){
+ panCardio <-  panCardio[! panCardio$Gene == "CBL",]
+ runTitle <- paste(runTitle, " CBL removed", sep = "")
+}
+
+#Create a dataframe where each subject has only one entry, with values
+# Find the IDs, sort to match the way the dataframes will be built
+ID <- sort(unique(panCardio$Id))
+#Count instances of H & H
+H <- as.data.frame(table(panCardio %>% filter(Eff=="H") %>% select(Id) ))
+names(H) <- c("Id", "H.Freq")
+M <- as.data.frame(table(panCardio %>% filter(Eff=="M") %>% select(Id) ))
+names(M) <- c("Id", "M.Freq")
+#Merge
+A <- merge(H,M,by="Id",suffixes="")
+
+
+## Analysis including race
+X <- merge( A[,c("Id","H.Freq","M.Freq")],subjPheno[,c("Id","type of CM",'Race_Recode_Cluster2','Machine_Recode', Y)],by="Id",suffixes="")
+#recode race as factor
+X$'Race_Recode_Cluster2' <- as.factor(X$'Race_Recode_Cluster2')
+#Eliminate NA
+X[[Y]] <- as.numeric(X[[Y]]) 
+X$'type of CM' <- as.factor(X$'type of CM')
+X$Machine_Recode <- as.factor(X$Machine_Recode)
+X.GLM <- X %>% select(-EF)
+#Eliminate NA
+X <- X[complete.cases(X),]
+#How to eliminate children for which the phenotype is different.
+X <- X[! X$Id=="4014",] # child
+X <- X[! X$Id=="5122",] # child
+X <- X[! X$Id=="5180",] # child
+X <- X[! X$Id=="5200",] # child
+X <- X[! X$Id=="5138",] # Not really sick
+
+
+
+#X <- X[! X$Id=="5168",] # child
+#X <- X[! X$Id=="5238",] # child
+
+
+#PLOT
+palette <- c( 'blue', 'red') # Colors for DCM and HCM
+ggplot(X,aes(x=M.Freq,y=X[[Y]],color=X$'type of CM',shape=X$'Race_Recode_Cluster2'))+geom_point(size=5)+ labs(title = runTitle, x = '# of M', y = Y)  + geom_smooth(method='lm',formula=y~x) + scale_colour_manual(values=palette)
+
+#FITS
+fit.DCM <- lm (X[[Y]] ~  M.Freq, X, subset = X$'type of CM' =='DCM')
+fit.HCM <- lm (X[[Y]] ~  M.Freq, X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.DCM)
+summary(fit.HCM)
+
+fit.1.DCM <- lm (X[[Y]] ~  M.Freq + Race_Recode_Cluster2, X, subset = X$'type of CM' =='DCM')
+fit.1.HCM <- lm (X[[Y]] ~  M.Freq + Race_Recode_Cluster2, X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.1.DCM)
+summary(fit.1.HCM)
+
+anova(fit.1.DCM, fit.DCM)
+anova(fit.1.HCM, fit.HCM)
+
+fit.2.DCM <- lm (X[[Y]] ~  M.Freq + Machine_Recode , X, subset = X$'type of CM' =='DCM')
+fit.2.HCM <- lm (X[[Y]] ~  M.Freq + Machine_Recode , X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.2.DCM)
+summary(fit.2.HCM)
+
+anova(fit.2.DCM, fit.1.DCM)
+anova(fit.2.HCM, fit.1.HCM)
+
+fit.3.DCM <- lm (X[[Y]] ~  M.Freq + Race_Recode_Cluster2 + Machine_Recode , X, subset = X$'type of CM' =='DCM')
+fit.3.HCM <- lm (X[[Y]] ~  M.Freq + Race_Recode_Cluster2 + Machine_Recode , X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.3.DCM)
+summary(fit.3.HCM)
+anova(fit.3.DCM, fit.2.DCM)
+anova(fit.3.HCM, fit.2.HCM)
+
+
+
+fit.4.DCM <- lm (X[[Y]] ~  M.Freq*Race_Recode_Cluster2 + Machine_Recode , X, subset = X$'type of CM' =='DCM')
+fit.4.HCM <- lm (X[[Y]] ~  M.Freq*Race_Recode_Cluster2 + Machine_Recode , X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.4.DCM)
+summary(fit.4.HCM)
+anova(fit.4.DCM, fit.3.DCM)
+anova(fit.4.HCM, fit.3.HCM)
+
+
+fit.5.DCM <- lm (X[[Y]] ~  M.Freq*Machine_Recode  + Race_Recode_Cluster2, X, subset = X$'type of CM' =='DCM')
+fit.5.HCM <- lm (X[[Y]] ~  M.Freq*Machine_Recode + Race_Recode_Cluster2, X, subset = X$'type of CM' =='HCM')
+
+runTitle # write how the data was filtered
+summary(fit.5.DCM)
+summary(fit.5.HCM)
+anova(fit.5.DCM, fit.4.DCM)
+anova(fit.5.HCM, fit.4.HCM)
+
+
+##GLM
+
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq),family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq) + Machine_Recode ,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq) + Race_Recode_Cluster2,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq) + Machine_Recode + Race_Recode_Cluster2,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq) + Machine_Recode*Race_Recode_Cluster2,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq)*Machine_Recode + Race_Recode_Cluster2,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+model <- glm( X.GLM$'type of CM' ~ I( M.Freq + H.Freq)* Race_Recode_Cluster2 + Machine_Recode,family=binomial(link='logit'),data=X.GLM)
+summary(model)
+
+##plot GLM
+
+intercept <- as.numeric( coef( model )[1] )
+beta_var_1 <- as.numeric( coef( model )[2] )
+beta_var_2 <- as.numeric( coef( model )[3] )
+
+#Rnge for variants
+range(X.GLM$H.Freq+X.GLM$M.Freq)
+#Make it a bit wider
+range <- seq( 60, 130, .01 )
+# log odds
+logodds_var_1 <- intercept + beta_var_1 * range
+logodds_var_1_2 <- intercept + beta_var_2+ beta_var_1 * range
+# probabilities 
+prob_var_1 <- exp(logodds_var_1) / (1+exp(logodds_var_1))
+prob_var_1_2 <- exp(logodds_var_1_2) / (1+exp(logodds_var_1_2))
+
+PLOT <- data.frame(range,prob_var_1,prob_var_1_2)
+
+require(ggplot2)
+
+ggplot(PLOT, aes(range)) +                    # basic graphical object
+  geom_line(aes(y=prob_var_1, colour="Xten")) +  # first layer
+  geom_line(aes(y=prob_var_1_2, colour="Other")) +  # second layer
+ labs(x = '# of Variants', y = 'Probability of DCM') + # Third
+ scale_colour_manual(name="Sequencer",values=c(Xten="red",Other="green")) 
+
+
+#Test for totals
+ DCM <- X.GLM %>% filter(X.GLM$'type of CM' == 'DCM' ) %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+HCM <- X.GLM %>% filter(X.GLM$'type of CM' == 'HCM' ) %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+wilcox.test(DCM$Total,HCM$Total)
+t.test(DCM$Total,HCM$Total)
+
+
+ DCM <- X.GLM %>% filter(X.GLM$'type of CM' == 'DCM',Machine_Recode== 1 ) %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+HCM <- X.GLM %>% filter(X.GLM$'type of CM' == 'HCM',Machine_Recode ==1 ) %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+wilcox.test(DCM$Total,HCM$Total)
+t.test(DCM$Total,HCM$Total)
+
+
+DCM <- X.GLM %>%  filter(X.GLM$'type of CM' == 'DCM') %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+DCM <- cbind(HCM, c(1))
+names(DCM) <- c("NumVar", "PofDCM")
+
+HCM <- X.GLM %>%  filter(X.GLM$'type of CM' == 'HCM') %>% mutate(Total = H.Freq+M.Freq) %>% select (Total)
+HCM <- cbind(HCM, c(0))
+names(DCM) <- c("NumVar", "PofDCM")
+
+ggplot(PLOT, aes(range)) +                    # basic graphical object
+  geom_line(aes(y=prob_var_1, colour="Fit")) +  # first layer
+ labs(x = '# of Variants', y = 'Probability of DCM') + # Third
+ geom_point(data=HCM,mapping = aes(x = NumVar, y = PofDCM, colour="HCM"))+
+  geom_point(data=DCM,mapping = aes(x = NumVar, y = PofDCM, colour="DCM"))+
+   scale_colour_manual(name="Legend",values=c(Fit="black",HCM="red",DCM="blue")) 
+
+
+#Use Hosher-Lemeshow test (significant difference between data and model)
+hoslem.test(mtcars$vs, fitted(model))
+

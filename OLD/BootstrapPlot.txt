@@ -1,0 +1,41 @@
+#Bootstrap plot
+
+library("ggplot2")
+library("readxl")
+require(dplyr)
+require(tidyr)
+
+#where the bootstrap data and output plots will be
+setwd("/Users/lpesce//Documents - MacBook Pro/Beagle users/Megan/HCM_DCM") 
+
+#Name of Excel file containing the data
+BootstrapCI <- read_excel("Bootstrap.xlsx", 
+col_types=c("text","numeric","numeric","numeric","numeric"))
+
+#bound plot space
+xmin <- min(BootstrapCI$HCM.low,BootstrapCI$DCM.low) #minimum value of frequency, usually 0
+xmax <- max(BootstrapCI$HCM.high,BootstrapCI$DCM.high) # maximum 
+nInt <-nrow(BootstrapCI) #nr of genes
+yMin <- 0 
+yMax <- xmax - xmin 
+BootstrapCI <- cbind(BootstrapCI,Y = seq(from=yMin,to=yMax,length.out=nInt)) #Add location for gene rows
+
+size <- 12 #Font size for gene names 
+st <- .1 #shift factor, to make line sizes, font sizes and plot dimensions 
+geneBoxX <- -2 #left justification of the Gene names in the plot
+
+ggplot(BootstrapCI)+
+geom_text(data=BootstrapCI,aes(x=geneBoxX,y=Y,label=as.character(Gene)),size=size,hjust=0) + #Gene names
+geom_segment(data=BootstrapCI,aes(x=HCM.low,y=Y+st,xend=HCM.high,yend=Y+st), colour='#FF0000', size=size,linetype=1) + # HCM intervals
+scale_y_discrete(name="", breaks=NULL) +
+scale_x_continuous(name= "Allele Frequency",breaks= c(0,.5,1,1.5,2), minor_breaks=NULL)+
+labs(title = paste('Bootstrap Confidence intervals'))+
+geom_segment(data=BootstrapCI,aes(x=DCM.low,y=Y-st,xend=DCM.high,yend=Y-st), colour="#0000FF", size=size, linetype=1) +  # DCM intervals
+geom_segment(aes(x=1,y=-yMax/50-2*st,xend=1,yend=yMax+2*st+.1), colour='black', size=2, linetype=2) +  # reference line at 1
+geom_segment(aes(x=0,y=-yMax/50-2*st,xend=0,yend=yMax+2*st+.1), colour='black', size=2, linetype=1) +  # Y axis
+geom_segment(aes(x=-2/50,y=-2*st,xend=2,yend=-2*st), colour='black', size=2, linetype=1) +  # x axis
+coord_fixed(ratio=.5) + # fixes x and y ratio
+theme_bw()
+
+ggsave("bootstrap.png")  #save png file
+

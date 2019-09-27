@@ -1,0 +1,489 @@
+###Bootstrap to compare excess variant frequency
+
+##Execute Reading_input_files.R 
+##  Note: it needs modifications to read the dataframe specific to the analysis to be performed and some ops need to be tailored
+## Exectue Analysis_of_Count_data.R
+## Execute 'GTEx plots' command definitions
+
+
+
+#panCardio 
+check_df(panCardio)
+#[1] "Nr of variants: 10357"
+#[1] "Nr of Genes: 89"
+#For all genes
+[1] "Nr of variants: 1744423"
+[1] "Nr of Genes: 17058"
+#For sSNVs
+#[1] "Nr of variants: 1588796"
+#[1] "Nr of Genes: 15778"
+
+
+
+#eliminate the variants missing the gnomAD we are using after turning them into numbers
+#Eliminate the variants missing GTEx because we don't know if they are cardiac or not
+#Eliminate chrY for consistency
+# Because the bootstrap approach can't work if we don't have a value for gnomAD
+panCardio$AF <- as.numeric(panCardio$AF)
+panCardio$gnomAD_AF_E <- as.numeric(panCardio$gnomAD_AF_E)
+panCardio$gnomAD_AF_NFE_E <- as.numeric(panCardio$gnomAD_AF_NFE_E)
+panCardio$gnomAD_AF_AFR_E <- as.numeric(panCardio$gnomAD_AF_AFR_E)
+panCardio$gnomAD_COV_E <- as.numeric(panCardio$gnomAD_COV_E)
+
+panCardio$GTExLV <- as.numeric(panCardio$GTExLV)
+panCardio$GTExAA <- as.numeric(panCardio$GTExAA)
+
+
+panCardio %>% filter (! is.na(gnomAD_AF_NFE_E) & ! is.na(gnomAD_AF_AFR_E)) -> panCardio
+panCardio %>% filter (! is.na(GTExAA) & ! is.na(GTExLV)) -> panCardio
+panCardio %>% filter(Chr!="chrY") -> panCardio 
+
+check_df(panCardio)
+##cardiomyopathy gene-set
+#[1] "Nr of variants: 10297"
+#[1] "Nr of Genes: 89"
+#ALL genes
+[1] "Nr of variants: 1635329"
+[1] "Nr of Genes: 16353"
+#sSNVs all genes
+#[1] "Nr of variants: 1545470"
+#[1] "Nr of Genes: 15618"
+
+
+
+cuts <- findGTEXCut(panCardio)
+# cuts
+#$cutAA
+#[1] 2.003208
+#$cutLV
+#[1] 1.493052
+
+
+#Make a copy, from which to create subsets to use to run the analysis
+panCardio.bk <- panCardio
+
+#SELECT ONE:  First set to try: the cardiomyopathy gene set
+#panCardio.bk %>% filter(Gene %in% geneGroups$Gene) -> panCardio
+#Second set cardiac genes. Note that here we are asking for both to be above the cutoff
+panCardio <- panCardio.bk %>% filter(GTExAA >= cuts$cutAA & GTExLV >= cuts$cutLV)
+#Non cardiac as complement of the rules for cardiac
+#panCardio <- panCardio.bk %>% filter(!(GTExAA >= cuts$cutAA & GTExLV >= cuts$cutLV)) 
+check_df(panCardio)
+#For the cardiac gene set
+#[1] "Nr of variants: 594479"
+#[1] "Nr of Genes: 7811"
+#For the non cardiac gene set
+#[1] "Nr of variants: 1040850"
+#[1] "Nr of Genes: 8542"
+# sSNVs: cardiomyopathy set
+[1] "Nr of variants: 13762"
+[1] "Nr of Genes: 89"
+# sSNVs: cardiac genes
+#[1] "Nr of variants: 1164361"
+#[1] "Nr of Genes: 10177"
+
+
+#Eliminate the variants thare are common in our set and never observed in gnomAD
+panCardio <- panCardio %>% filter(!(gnomAD_AF_E == 0 & DCM_FREQ > .5 & DCM_FREQ > .5))
+check_df(panCardio)
+#All genes -- cardiac
+#[1] "Nr of variants: 582652"
+#[1] "Nr of Genes: 7810"
+#All genes -- non cardiac
+#[1] "Nr of variants: 1014889"
+#[1] "Nr of Genes: 8541"
+# sSNVs: cardiomyopathy set
+#[1] "Nr of variants: 13762"
+#[1] "Nr of Genes: 89"
+# sSNVs: cardiac genes
+#[1] "Nr of variants: 474719"
+#[1] "Nr of Genes: 6395"
+
+
+#Eliminate genes with segment duplications
+panCardio <- anti_join(panCardio,segDupByGene,by='Gene')
+check_df(panCardio)
+#All genes -- cardiac
+#[1] "Nr of variants: 479620"
+#[1] "Nr of Genes: 7305"
+#All genes -- non cardiac
+#[1] "Nr of variants: 758881"
+#[1] "Nr of Genes: 7609"
+
+
+#Eliminate all levels that don't have an observation anymore to avoid inconsistencies in data structures
+panCardio <- droplevels(panCardio)
+
+#Create matrix with all observed combinations of genes and type.of.CM
+#Create ID factor
+(data.frame(Id=levels(panCardio$Id) ) %>% droplevels)$Id -> ID
+ length(ID)
+#[1] 127
+
+
+#create dataframe resampling function to create resampling IDs
+resample <- function(x, ...) x[sample.int(length(x), ...)]
+
+set.seed(3)
+
+resample(ID,replace=T)  #Create a random sample of Ids
+
+# Add Phenotype information and select only the variable relevant to the bootstrap to reduce memory footprint
+panCardio <- merge(panCardio,subjPheno %>% select(Id,type.of.CM,Race_Recode_Cluster2,Sex),by='Id')
+panCardio <- panCardio %>% select(Id,type.of.CM, Race_Recode_Cluster2,Sex,Gene,Chr,Loc,Ref,Alt,AF,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E)
+#Correct for ploidy
+panCardio$AF <- as.numeric(panCardio$AF)
+panCardio <- panCardio %>% mutate(AF=2*AF,NC=2)
+#Correction for actual ploidy of chrX males, not used in the actual calculations
+panCardio[panCardio$Sex=='M' & panCardio$Chr=='chrX', ]$AF <- panCardio[panCardio$Sex=='M' & panCardio$Chr=='chrX', ]$AF*.5
+panCardio[panCardio$Sex=='M' & panCardio$Chr=='chrX', ]$NC <- panCardio[panCardio$Sex=='M' & panCardio$Chr=='chrX', ]$NC*.5
+
+
+#Utility dataframes
+chrs <- panCardio %>% select(Chr) %>% unique #list of chromosomes
+pheno.4 <- subjPheno %>% filter(Id %in% ID)%>% select(Id, Sex, Race_Recode_Cluster2, type.of.CM) %>% droplevels #simplifies phenotype 
+geneByChr <- panCardio %>% select(Gene,Chr) %>% unique #List of genes with the chromosome they are on
+
+computeEffectiveAF <- function(B.db,ID.B){
+    #Function to compute the statistic for a dataframe of variants like panCardio
+    tmp <- B.db %>% mutate(wAN=AF*w,wNC=NC*w) #Multiply the nr of alleles and chromosomes by the weight in the B sample
+    #Summarise variants by variant grouped by race and condition, so sum the weigthed allele numbers
+    #NOTE: Assumes variants appear only once per subject, which is clearly true unless, for example
+    #      there are SNPEFF High and Moderate variants that are the same variant and should have been filtered out
+    tmp <- tmp %>% group_by(Chr,Loc,Ref,Alt,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,Gene,type.of.CM,Race_Recode_Cluster2) %>%
+         summarise(tvAN=sum(wAN)) %>% ungroup 
+
+
+   #Outerproduct of *all* chr in panCardio times all ids (with weight) in subsample
+   idByChr <- merge(ID.B  %>% unique, chrs)
+
+   #      (to avoid missing chr because there are no variants there)
+   #      If a chr has no variants in the original set, it would never be observed anyway
+   #      because it can't appear in a bootstrap sample   
+   #Contingency table of weighted nr of chromosomes in type.of.CM outer Race (wNC), 
+   #considering male or female for chrX
+   count.B <- idByChr %>% 
+              group_by(type.of.CM,Sex,Chr,Race_Recode_Cluster2) %>% 
+              summarise(nSubj=sum(w)) %>% spread(Sex,nSubj,fill=0) %>% #Nr of males and females counting repeat samples
+              mutate(wNC=F*2 +M*ifelse(Chr=='chrX',1,2)) %>% select(-M,-F) %>% ungroup # if chrX, count males as 1*weight
+   #Merge it to the variant table so each variant for each HCM by race group has the total number of chromosomes or possible alleles
+   tmp <- merge(count.B ,tmp)
+
+   # Marginalize the count.B table, to obtain nr of chromosomes by condition, irrespective of ancestry 
+   count.B <- count.B %>% group_by(type.of.CM,Chr) %>% summarise(totNC=1.0*sum(wNC)) %>% select(type.of.CM,Chr,totNC) %>% ungroup
+   count.B <- merge(count.B,geneByChr,by='Chr') %>% select(-Chr) #nr of possible alleles by disease and gene
+
+   rm(idByChr) #Clean up some memory in case we are tight
+
+   #Produce the excess variants for this allele, given gnomAD, race and nr of subjects. Just sum the allele frequencies found
+   # tmp <- tmp %>% mutate( excAF = 1.0*tvAN/wNC - ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   # tmp %>% group_by(Gene,type.of.CM) %>% summarise( EAF=sum(excAF) ) -> tmp
+   
+   ##NOTE: alternative approach that account for weighted averaging across races. The alleles are summer across variants and race as alleles 
+   ##Compute difference in Allele counts between cohort and gnomAD, not differences in frequencies
+   tmp <- tmp %>% mutate( excAN = 1.0*tvAN - wNC*ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   ##Sum all the excess allele counts across race and variant alike
+   tmp <- tmp %>% group_by(Gene,type.of.CM) %>% summarise( CexcAN=sum(excAN) ) %>% ungroup
+
+   ## Divide by the total nr of chromosomes  
+   tmp <- merge( tmp, count.B) 
+   tmp <- tmp %>% mutate(EAF = CexcAN/totNC) %>% select(Gene,type.of.CM,EAF)
+   return(tmp)
+
+}
+
+#Bootstrap loop
+nBoot <- 5000
+#Create matrix with all combinations of genes and type.of.CM possible from the data
+geneAF <- merge(geneByChr %>% select(Gene) %>% unique, pheno.4 %>% select(type.of.CM) %>% unique ) %>% arrange(Gene)
+
+#Bootstrap loop
+for (i in seq(nBoot)){
+   #Create weights for the various IDs depending upon resampling frequency
+   #list of resampled IDs with how many times they were resampled
+   ID.B <- data.frame(Id=resample(ID,replace=T)) %>% group_by(Id) %>% summarize(w=n()) #
+   #Add Race & Gender 
+   ID.B <- merge(ID.B,subjPheno %>% select(Id,type.of.CM,Race_Recode_Cluster2,Sex),by='Id')
+   #Filter for Ids in sample
+   panCardio.B <- panCardio %>% filter(Id %in% ID.B$Id) 
+   panCardio.B <- merge(panCardio.B,ID.B %>% select(Id,w), by='Id') #Add bootstrap weight to the genomic data 
+   B.res <- computeEffectiveAF(panCardio.B,ID.B) # Compute statistic
+   B.res %>% select(Gene,type.of.CM,EAF)
+   geneAF <- left_join(geneAF,B.res,by = c("Gene", "type.of.CM"),suffix=c("",toString(i)))
+   if ( i %% 100 == 0 ) print(paste("Done with Sample",i))
+}
+
+
+#Write out the bootstrap values 
+#WARNING FILE NAME IS HARDCODED
+write.table(geneAF, file = paste(dateStr,"Bootstrap_nsSNVs_NonCardiac.txt"), append = FALSE, quote = TRUE, sep = " ",
+            eol = "\n", na = "NA", dec = ".", row.names = TRUE,
+            col.names = TRUE)
+
+
+# tail size for the empirical distribution (p-value/2 divided by correction factor)
+FDR=.25 # .20 is for 20%
+ntests <- panCardio %>% select(Gene) %>% unique %>% nrow #nr of observed genes: we are not testing genes for which we have no data
+#tail <- 4*(.2/2)/(4173*3)  # Correction for 100 or the number of myo genes rounded -- many aren't there either
+i <- 1
+tail <- (i*FDR/ntests)/2  # Maximal correction for FDR is i=1
+
+#Convert dataframe into a matrix of numbers
+geneAF[,1:2] -> Cnames
+tmp1 <- as.matrix(geneAF[,3:ncol(geneAF)])
+
+for (i in 1:(nrow(geneAF)/2)){
+ gene1<-Cnames[i*2-1,1]
+ CM1 <-Cnames[i*2-1,2]
+ gene2<-Cnames[i*2,1]
+ CM2 <-Cnames[i*2,2]
+ if(gene1 != gene2){ print(paste("ERROR:",gene2,gene1))}
+ x1 <-tmp1[i*2-1,]
+ x1[is.na(x1)] <- 0
+ x2 <-tmp1[i*2,]
+ x2[is.na(x2)] <- 0
+ x12 <- x2-x1
+ ICM1<-quantile(x1,c(c(tail,1-tail)))
+ ICM2<-quantile(x2,c(c(tail,1-tail)))
+ DIFF<-quantile(x1-x2,c(c(tail,1-tail)))
+ if (DIFF[[1]] > 0 | DIFF[[2]] < 0){
+ #if (ICM2[[1]] > 0 | ICM2[[2]] < 0){
+
+      cat(paste(
+      gene2," DELTA: [",sprintf("%6.4f",DIFF[[1]]),"-",sprintf("%6.4f",DIFF[[2]]),"],",
+              CM2,": [",sprintf("%6.4f",ICM2[[1]]),"-",sprintf("%6.4f",ICM2[[2]]),"],",
+              CM1,": [",sprintf("%6.4f",ICM1[[1]]),"-",sprintf("%6.4f",ICM1[[2]]),"]\n",
+      sep=""))
+    }
+  
+}
+
+# for delta it is LMNA and MYH7 and BAG3
+BAG3 DELTA: [-0.3395--0.0059],HCM: [0.0178-0.2913],DCM: [-0.1151-0.0884]
+LMNA DELTA: [0.0471-0.6858],HCM: [-0.2280-0.1738],DCM: [0.0838-0.5740]
+MYH7 DELTA: [-0.4044--0.2181],HCM: [0.2445-0.4202],DCM: [0.0000-0.0546]
+
+
+##Gibberish
+
+#Test Specific genes
+tail <- (.05/2)  # Correction for 100 or the number of myo genes rounded -- many aren't there either
+gene='BAG3'
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='DCM') )[c(-1,-2)] -> x
+x[is.na(x)] <- 0
+DCM<-quantile(x,c(c(tail,1-tail)))
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='HCM'))[c(-1,-2)] -> y
+y[is.na(y)] <- 0
+HCM<-quantile(y,c(c(tail,1-tail)))
+DIFF<-quantile(x-y,c(c(tail,1-tail)))
+    if ( DIFF[[1]] > 0 | DIFF[[2]] < 0){
+      cat(paste(gene," DELTA: [",sprintf("%6.4f",DIFF[[1]]),"-",sprintf("%6.4f",DIFF[[2]]),"] HCM: [",sprintf("%6.4f",HCM[[1]]),"-",sprintf("%6.4f",HCM[[2]]),"] DCM: [",sprintf("%6.4f",DCM[[1]]),"-",sprintf("%6.4f",DCM[[2]]),"]\n", sep=""))
+    }
+
+#Study distributions of properties
+tail <- (.05/2)/20  # Correction for 100 or the number of myo genes rounded -- many aren't there either
+DIST <- data.frame(Gene=CN,DELTAL=-100,DELTAR=+100)
+for (gene in CN){
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='DCM') )-> x
+x[is.na(x)] <- 0
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='HCM')) -> y
+y[is.na(y)] <- 0
+Q <-quantile(x-y,c(c(tail,1-tail)))
+DIST[DIST$Gene==gene,]$DELTAL <- as.numeric(Q[1])
+DIST[DIST$Gene==gene,]$DELTAR <- as.numeric(Q[2])
+}
+
+
+
+OLD STUFF
+
+CN <- unique(geneAF$Gene) 
+for (gene in CN){
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='DCM')[c(-1,-2)] -> x
+x[is.na(x)] <- 0
+DCM<-quantile(x,c(c(tail,1-tail)))
+as.numeric(geneAF %>% filter(Gene==gene & type.of.CM =='HCM'))[c(-1,-2)] -> y
+y[is.na(y)] <- 0
+HCM<-quantile(y,c(c(tail,1-tail)))
+DIFF<-quantile(x-y,c(c(tail,1-tail)))
+    if (HCM[[1]] >  0 | HCM[[2]] < 0 | DCM[[1]] >  0 | DCM[[2]] < 0 | DIFF[[1]] > 0 | DIFF[[2]] < 0){
+      cat(paste(gene," DELTA: [",sprintf("%6.4f",DIFF[[1]]),"-",sprintf("%6.4f",DIFF[[2]]),"] HCM: [",sprintf("%6.4f",HCM[[1]]),"-",sprintf("%6.4f",HCM[[2]]),"] DCM: [",sprintf("%6.4f",DCM[[1]]),"-",sprintf("%6.4f",DCM[[2]]),"]\n", sep=""))
+    }
+}
+
+
+computeEffectiveAF <- function(B.db,ID.B){
+    tmp <- B.db %>% select(Id,type.of.CM, Race_Recode_Cluster2,Sex,Gene,Chr,Loc,Ref,Alt,AF,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,w) %>% mutate(wAN=2*AF*w,wNC=2*w)
+
+    #Correction for actual ploidy of chrX males
+    tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wAN <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wAN*.5
+    tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wNC <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wNC*.5
+
+    #Summarise data by variant within race and condition, so allele number and chromosome counts sum 
+    #NOTE: Assumes variants appear only once per subject, which is clearly true unless, for example
+    #      there are SNPEFF High and Moderate variants that are the same variant 
+    tmp <- tmp %>% group_by(Chr,Loc,Ref,Alt,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,Gene,type.of.CM,Race_Recode_Cluster2) %>%
+         summarise(tvAN=sum(wAN)) %>% ungroup 
+    #summarise(tvAN=sum(wAN),tvNC=sum(wNC)) ->tmp
+
+
+   #NOTE: outerproduct of *all* chr in pancardio times all ids (with weight) in subsample
+   #      (to avoid missing chr because there are no variants there)
+   #      If a chr has no variants in the original set, it would never be observed anyway
+   #      because it can't appear in a bootstrap sample
+   idByChr <- merge(B.db %>% select(Id,w) %>% unique, chrs) 
+   
+   #Contingency table of weighted nr of chromosomes in type.of.CM outer Race (wNC), considering male or female for chrX
+   count.B <- merge(idByChr, pheno.4) %>% 
+              group_by(type.of.CM,Sex,Chr,Race_Recode_Cluster2) %>%
+              summarise(nSubj=sum(w)) %>% spread(Sex,nSubj,fill=0) %>%
+              mutate(wNC=F*2 +M*ifelse(Chr=='chrX',1,2)) %>% ungroup
+   #Merge it to the variant table
+   tmp <- merge(count.B %>% select(type.of.CM,Chr,Race_Recode_Cluster2,wNC),tmp)
+
+   # Marginalize the count.B table, to obtain nr of chromosomes by condition, irrespective of ancestry 
+   count.B <- count.B %>% group_by(type.of.CM,Chr) %>% summarise(totNC=1.0*sum(wNC)) %>% select(type.of.CM,Chr,totNC) %>% ungroup
+   count.B <- merge(count.B,geneByChr,by='Chr') %>% select(-Chr) 
+
+   rm(idByChr) #Clean up some memory in case we are tight
+
+   #Produce the excess variants for this allele, given gnomAD, race and nr of subjects. Just sum the allele frequencies found
+   # tmp <- tmp %>% mutate( excAF = 1.0*tvAN/wNC - ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   # tmp %>% group_by(Gene,type.of.CM) %>% summarise( EAF=sum(excAF) ) -> tmp
+   
+   ##NOTE: alternative approach that account for weighted averaging across races. The alleles are summer across variants and race as alleles 
+   ##Compute difference in Alleles counts between cohort and gnomAD, not differences in frequencies
+
+   tmp <- tmp %>% mutate( excAN = 1.0*tvAN - wNC*ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   ##Sum all the excess allele counts across race and variant alike
+   tmp <- tmp %>% group_by(Gene,type.of.CM) %>% summarise( CexcAN=sum(excAN) ) %>% ungroup
+
+   ## Divide by the total nr of chromosomes  
+   tmp <- merge( tmp, count.B) 
+   tmp <- tmp %>% mutate(EAF = CexcAN/totNC) %>% select(Gene,type.of.CM,EAF)
+   return(tmp)
+
+}
+
+#Bootstrap loop
+nBoot <- 5000
+#Create matrix with all observed combinations of genes and type.of.CM
+geneAF <- merge(geneByChr %>% select(Gene) %>% unique, pheno.4 %>% select(type.of.CM) %>% unique ) %>% arrange(Gene)
+#Bootstrap loop
+for (i in seq(nBoot)){
+   #Create weights for the various IDs depending upon resampling frequency
+   ID.B <- data.frame(Id=resample(ID,replace=T)) %>% group_by(Id) %>% summarize(w=n())
+   #Add Race & Gender
+   ID.B <- merge(ID.B,subjPheno %>% select(Id,type.of.CM,Race_Recode_Cluster2,Sex),by='Id')
+   #nSubj <- subjcnt(ID.B)
+   #Filter for Ids in sample
+   panCardio.B <- panCardio %>% filter(Id %in% ID.B$Id) 
+
+   #panCardio.B <- panCardio.B %>% filter (Chr != "chrX") #Temporary remove chrX to simplify allele counts
+   panCardio.B <- merge(panCardio.B,ID.B, by='Id') #Add bootstrap sampleID information to the genomic data 
+   B.res <- computeEffectiveAF(panCardio.B,ID.B) 
+   B.res %>% select(Gene,type.of.CM,EAF)
+   geneAF <- left_join(geneAF,B.res,by = c("Gene", "type.of.CM"),suffix=c("",toString(i)))
+   if ( i %% 100 == 0 ) print(paste("Done with Sample",i))
+}
+
+
+
+#Create variable with total number of alleles (equal to the number the subject has, multiplied by the times he or she
+# Appears in the sample
+panCardio.B %>% select(Id,type.of.CM, Race_Recode_Cluster2,Sex,Gene,Chr,Loc,Ref,Alt,AF,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,w) %>% mutate(waf=AF*w) -> tmp
+
+#Correction for actual ploidy of chrX males
+panCardio.B[panCardio.B$Sex=='M' & panCardio.B$Chr=='chrX', ]$AF <- panCardio.B[panCardio.B$Sex=='M' & panCardio.B$Chr=='chrX', ]$AF*.5
+
+
+#Summarise data by variant within race and condition
+tmp %>% group_by(Gene,Chr,Loc,Ref,Alt,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,type.of.CM,Race_Recode_Cluster2) %>% summarise(na=sum(waf)) ->tmp
+
+ungroup(tmp) -> tmp
+
+#tmp1 %>% merge(tmp,ID.B %>% group_by(type.of.CM,Race_Recode_Cluster2) %>% #summarise(nSubj=sum(w)),by=c("type.of.CM","Race_Recode_Cluster2")) %>% ungroup
+
+#Contingency table of nr of subjects in type.of.CM outer Race, then merge it to the previous table
+count.B <- ungroup(ID.B %>% group_by(type.of.CM,Race_Recode_Cluster2) %>% summarise(nSubj=sum(w))) 
+tmp <- merge(count.B,tmp)
+
+#Produce the excess variants for this allele, given gnomAD, race and nr of subjects
+tmp <- tmp %>% mutate( exc = 2*(na - nSubj*( (1-Race_Recode_Cluster2)*gnomAD_AF_NFE_E + Race_Recode_Cluster2*gnomAD_AF_AFR_E) ) )
+
+tmp %>% group_by(Gene,type.of.CM,Race_Recode_Cluster2) %>% summarise(EAF=sum(exc)) -> tmp
+
+#merge(tmp,count.B) %>% group_by(Gene,type.of.CM) %>% summarise( EAF=sum(EAF), nTot=sum(nSubj) ) -> tmp1
+
+tmp %>% group_by(Gene,type.of.CM) %>% summarise( EAF=sum(EAF) ) -> tmp
+
+merge( tmp, count.B %>% group_by(type.of.CM) %>% summarise(Ntot=sum(nSubj)) ) %>% mutate(AF = EAF/Ntot) %>% arrange(Gene) -> tmp
+#Load the AF from this set
+geneAF <- left_join(geneAF,tmp %>% select(type.of.CM,Gene,AF))
+#Replace NA with 0s, since we have no observations
+geneAF[is.na(geneAF$AF),]$AF <- 0 
+
+require(boot)
+
+
+
+computeEffectiveAF <- function(B.db,ID.B){
+    B.db %>% select(Id,type.of.CM, Race_Recode_Cluster2,Sex,Gene,Chr,Loc,Ref,Alt,AF,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,w) %>% mutate(wAN=2*AF*w,wNC=2*w) -> tmp
+
+    #Correction for actual ploidy of chrX males
+    tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wAN <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wAN*.5
+    tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wNC <- tmp[tmp$Sex=='M' & tmp$Chr=='chrX', ]$wNC*.5
+
+    #Summarise data by variant within race and condition, so allele number and chromosome counts sum 
+    #NOTE: Assumes variants appear only once per subject, which is clearly true unless, for example
+    #      there are SNPEFF High and Moderate variants that are the same variant 
+    tmp <- tmp %>% group_by(Chr,Loc,Ref,Alt,gnomAD_AF_AFR_E,gnomAD_AF_NFE_E,Gene,type.of.CM,Race_Recode_Cluster2) %>%
+         summarise(tvAN=sum(wAN)) %>% ungroup 
+    #summarise(tvAN=sum(wAN),tvNC=sum(wNC)) ->tmp
+
+
+   #NOTE: outerproduct of *all* chr in pancardio times all ids (with weight) in subsample (to avoid missing chr because there are no variants there
+   #      If a chr has no variants in panCardio, it would never be observed anyway because it can't appear in a bootstrap sample
+   idByChr <- merge(B.db %>% select(Id,w) %>% unique, chrs) 
+   
+   #Contingency table of weighted nr of chromosomes in type.of.CM outer Race (wNC), considering male or female for chrX
+   count.B <- merge(idByChr, pheno.4) %>% 
+              group_by(type.of.CM,Sex,Chr,Race_Recode_Cluster2) %>%
+              summarise(nSubj=sum(w)) %>% spread(Sex,nSubj,fill=0) %>%
+              mutate(wNC=F*2 +M*ifelse(Chr=='chrX',1,2)) %>% ungroup
+   #Merge it to the previous table
+   tmp <- merge(count.B %>% select(type.of.CM,Chr,Race_Recode_Cluster2,wNC),tmp)
+
+   count.B <- count.B %>% group_by(type.of.CM,Chr) %>% summarise(totAN=1.0*sum(wNC)) %>% select(type.of.CM,Chr,totAN) %>% ungroup
+   count.B <- merge(count.B,geneByChr,by='Chr') %>% select(-Chr) 
+
+   rm(idByChr) #Clean up some memory in case we are tight
+
+   #Produce the excess variants for this allele, given gnomAD, race and nr of subjects. Just sum the allele frequencies found
+   # tmp <- tmp %>% mutate( excAF = 1.0*tvAN/wNC - ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   # tmp %>% group_by(Gene,type.of.CM) %>% summarise( EAF=sum(excAF) ) -> tmp
+   
+   ##NOTE: alternative approach that account for weighted averaging across races. The alleles are summer across variants and race as alleles 
+   ##Compute difference in Alleles counts between cohort and gnomAD, not differences in frequencies
+
+   tmp <- tmp %>% mutate( excAN = 1.0*tvAN - wNC*ifelse(Race_Recode_Cluster2==0,gnomAD_AF_NFE_E,gnomAD_AF_AFR_E ) ) 
+   tmp <- tmp %>% group_by(Gene,type.of.CM) %>% summarise( CexcAN=sum(excAN) ) %>% ungroup
+
+   #tmp %>% mutate(EAF=CexcAN) %>% select(-CexcAN)
+   ##Sum all the excess allele counts across race and variant alike
+   # tmp <- tmp %>% group_by(Gene,Chr,type.of.CM) %>% summarise(CExcAN=sum(excAN))
+   #tmp.1 <- tmp %>% select(type.of.CM,Gene,Chr,excAN)
+   #rm(tmp) 
+   #tmp <- tmp.1 %>% group_by(type.of.CM, Gene,Chr) %>% summarise(EAF=sum(excAN)) %>% ungroup %>% select(type.of.CM,Gene,EAF)
+   #rm(tmp.1)
+   ## Divide by the total nr of chromosomes  
+   # tmp <- merge( tmp, count.B %>% group_by(type.of.CM,Chr) %>% summarise(totAN=sum(wNC)) )  %>% mutate(EAF = CExcAN/totAN) %>% select(Gene,type.of.CM,EAF)   
+   tmp.1 <- merge( tmp, count.B) 
+   rm(tmp)
+   tmp <- tmp.1 %>% mutate(EAF = CexcAN/totAN) %>% select(Gene,type.of.CM,EAF)
+   rm(tmp.1)
+   return(tmp)
+
+}
+
+merge(panCardio %>% select(Id,Gene) %>% unique, subjPheno %>% select(Id,type.of.CM)) %>% select(Gene,type.of.CM) %>% unique %>% arrange(Gene) -> geneAF

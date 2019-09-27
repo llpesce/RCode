@@ -1,0 +1,19 @@
+R ANALYSIS OF HCM/DCM
+# Dependencies
+install.packages("plyr")
+# to produce excel files, currently we are witing tab separated. 
+install.packages("xlsx")
+
+library("plyr")
+library("xlsx")
+loc<-'/data/Cardiomyopathy_Genomes/HCM_DCM_Analysis/Autosomes_0.01'
+setwd(loc)
+mydata <- read.csv("Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe",sep = "\t", header=TRUE)
+effByID<-count(mydata, c("Id","Eff"))
+outFile=paste(loc, "effByID.xlsx", sep="/")
+write.xlsx(effByID,outFile)
+write.table(effByID
+
+# We made a script to run the analysis given a dataframe file, can take a second 
+# argument as output file name (needs extension because name is used 
+Rscript --vanilla /data/Cardiomyopathy_Genomes/HCM_DCM_Analysis/Autosomes_0.01/CountEffByID.R Genomes_MegaSeq6.0_RefSeqGeneListAutosomes.dataframe

@@ -1,0 +1,49 @@
+Data <- read.table('/Users/lpesce/Documents/Megan/Genomes_MegaSeq4.0_Pan_Card_LMM_GeneDx_Invitae.dataframe', header=TRUE)
+
+#Pick out the entries that are both M and HCM or DCM
+> MODEHCM <-Data[Eff=="M" & phen=="HCM",]
+> MODEDCM <-Data[Eff=="M" & phen=="DCM",]
+
+A <-count(MODEHCM,"Id")
+B <-count(MODEDCM,"Id")
+
+wilcox.test(A[,2],B[,2])
+
+	Wilcoxon rank sum test with continuity correction
+
+data:  A[, 2] and B[, 2]
+W = 1913.5, p-value = 0.02169
+alternative hypothesis: true location shift is not equal to 0
+
+> median(A[,2])
+[1] 48
+> median(B[,2])
+[1] 52
+
+It is statistically significant, there are more variants in DCM, the median is 4 variants more.
+
+
+#Let's add rare
+> MODEDCM <-Data[Eff=="M" & phen=="DCM" & ExAC <0.01,]
+> MODEHCM <-Data[Eff=="M" & phen=="HCM" & ExAC <0.01,]
+> A <-count(MODEHCM,"Id")
+> B <-count(MODEDCM,"Id")
+> wilcox.test(A[,2],B[,2])
+
+	Wilcoxon rank sum test with continuity correction
+
+data:  A[, 2] and B[, 2]
+W = 2204, p-value = 0.7381
+alternative hypothesis: true location shift is not equal to 0
+
+#Not significant!
+#Median is the same, but Mean is different! DCM has more patients that have lots of rare variants
+> median(B[,2])
+[1] 4
+> median(A[,2])
+[1] 4
+> mean(A[,2])
+[1] 4.4
+> mean(B[,2])
+[1] 5.723684
+> 
